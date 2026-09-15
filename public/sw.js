@@ -1,7 +1,7 @@
 /* سرویس‌ورکر نبرد سایبری — اجرای ۱۰۰٪ آفلاین
    کل پوسته‌ی بازی (تک‌فایل HTML + آیکون‌ها + منیفست) از قبل کش می‌شود؛
    بعد از اولین بازدید، بازی بدون هیچ اینترنتی بالا می‌آید. */
-const VERSION = "cyber-arena-v2-offline";
+const VERSION = "cyber-arena-v3-offline";
 const SHELL = [
   "./",
   "./index.html",
