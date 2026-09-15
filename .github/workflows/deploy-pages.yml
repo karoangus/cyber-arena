@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # برای کامیت‌کردن بیلد تازه در app/ (حالت legacy صفحه‌ساز Pages)
   pages: write
   id-token: write
 
@@ -31,10 +31,24 @@ jobs:
         run: npm ci
       - name: Typecheck & build (single-file offline bundle)
         run: npm run build
+      # حالت legacy صفحه‌ساز Pages ریشه‌ی مخزن را سرو می‌کند؛ پس بیلد تازه را در app/ کامیت می‌کنیم
+      # تا سایت بدون هیچ تنظیم دستی به‌روز بماند. (اگر Pages به «GitHub Actions» سوییچ شود،
+      # به‌جای این کار artifact زیر مستقیم منتشر می‌شود.)
+      - name: Commit fresh build to app/ (for legacy Pages serving repo root)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app
+          if git diff --cached --quiet; then
+            echo "Build output unchanged — nothing to commit."
+          else
+            git commit -m "بیلد خودکار: به‌روزرسانی app/"
+            git push origin HEAD:main || echo "::warning::push failed (concurrent update); build committed locally only"
+          fi
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: app
 
   deploy:
     needs: build

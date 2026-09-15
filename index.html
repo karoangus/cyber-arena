@@ -87,12 +87,22 @@
         function offlineNow() {
           return typeof navigator !== "undefined" && navigator.onLine === false;
         }
+        // پوسته‌ی میزبانی استاتیک: index.html «سورس» وقتی بدون vite سرو شود (مثل GitHub Pages حالت legacy).
+        // در این حالت سورس TSX در مرورگر اجرا نمی‌شود؛ باید به بیلد آماده‌ی ./app/ پرش کنیم.
+        function isStaticShell() {
+          return (
+            !document.querySelector('script[src*="@vite"], script[data-vite-dev-id]') &&
+            !!document.querySelector('script[type="module"][src="/src/main.tsx"]')
+          );
+        }
         window.addEventListener(
           "error",
           function (e) {
             var tgt = e ? e.target : null;
             // خطای لود منابع غیرحیاتی (فونت/آیکون/منیفست) نباید صفحه‌ی خطا بیاورد؛ بازی بدون آن‌ها هم کار می‌کند
             if (tgt && tgt !== window && (tgt.tagName === "LINK" || tgt.tagName === "IMG")) return;
+            // روی پوسته‌ی استاتیک، خطای لود سورس طبیعی است؛ ریدایرکت به app/ انجامش می‌دهد
+            if (isStaticShell()) return;
             if (offlineNow()) {
               showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. بازی بعد از اولین بارگذاری کاملاً بدون اینترنت اجرا می‌شود؛ برای اولین بار اینترنت را وصل کن و یک‌بار بازی را باز کن.", true);
             } else {
@@ -101,7 +111,8 @@
           },
           true
         );
-        window.addEventListener("unhandledrejection", function (e) {
+        window.addEventListener("unhandledrejection", function () {
+          if (isStaticShell()) return;
           if (offlineNow()) {
             showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. بازی بعد از اولین بارگذاری کاملاً بدون اینترنت اجرا می‌شود؛ اینترنت را وصل کن و یک‌بار بازی را باز کن.", true);
           } else {
@@ -110,12 +121,27 @@
         });
         // اگر بعد از ۲۵ ثانیه ری‌اکت بالا نیامد، فایل‌های بازی ناقص رسیده‌اند یا کش قدیمی خراب است
         setTimeout(function () {
+          if (isStaticShell()) return; // ریدایرکت به app/ جواب این صفحه را می‌دهد
           if (offlineNow()) {
             showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. برای اولین بارگذاری اینترنت لازم است؛ بعد از آن بازی کامل آفلاین اجرا می‌شود.", true);
           } else {
             showBootError("لود بازی طول کشید", "فایل‌های بازی درست باز نشدند — احتمالاً کش قدیمیِ نسخه‌ی قبلی سایت مانده. با دکمه‌ی زیر کش را پاک کن.", false);
           }
         }, 25000);
+
+        // پرش خودکار از پوسته‌ی استاتیک به بیلد آماده‌ی app/ (فقط وقتی بیلد واقعاً موجود است)
+        window.addEventListener("DOMContentLoaded", function () {
+          if (window.__CYBER_MOUNTED__ || window.__CYBER_BOOT_ERROR__ || !isStaticShell()) return;
+          fetch("./app/index.html", { method: "HEAD" })
+            .then(function (res) {
+              if (res.ok) {
+                location.replace("./app/");
+              } else {
+                showBootError("بیلد بازی پیدا نشد", "فایل‌های ساخته‌شده‌ی بازی (پوشه‌ی app/) روی این میزبانی منتشر نشده‌اند. بیلد را دوباره منتشر کن.", false);
+              }
+            })
+            .catch(function () {});
+        });
       })();
     </script>
   </head>

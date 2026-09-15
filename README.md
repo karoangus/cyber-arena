@@ -24,9 +24,13 @@ npm run preview    # سرو بیلد تولید روی http://localhost:4173
 
 ## دیپلوی (GitHub Pages)
 
-بیلد تولیدی به‌صورت خودکار با GitHub Actions روی GitHub Pages منتشر می‌شود (`.github/workflows/deploy-pages.yml`): هر push به `main` → typecheck + build → انتشار `dist/` روی Pages.
+بیلد تولیدی به‌صورت خودکار منتشر می‌شود (`.github/workflows/deploy-pages.yml`): هر push به `main` → typecheck + build → خروجی در پوشه‌ی `app/` **کامیت می‌شود** و همزمان به‌عنوان artifact برای Pages هم آپلود می‌شود.
 
-> نکته: Pages باید روی حالت **GitHub Actions** باشد (Settings → Pages → Source: GitHub Actions)، نه «Deploy from branch». اگر روی branch باشد، سورس خام (TSX) سرو می‌شود که در مرورگر اجرا نمی‌شود و پیام «بازی لود نشد» می‌بیند — این دقیقاً باگ قبلی بود.
+چرا این‌طور؟ سایت فعلاً در حالت legacy (Deploy from branch) است و **ریشه‌ی مخزن** را سرو می‌کند. بنابراین:
+
+- `index.html` ریشه یک «بوت‌استرپ» هوشمند است: در محیط توسعه (وقتی vite است) خودش بازی را از سورس اجرا می‌کند، و روی میزبانی استاتیک به‌صورت خودکار به بیلد آماده‌ی `./app/` پرش می‌کند.
+- پوشه‌ی `app/` (خروجی بیلد تک‌فایلی) در مخزن کامیت می‌شود تا هم legacy Pages آن را سرو کند و هم بعد از اولین بازدید، سرویس‌ورکر آن را برای اجرای آفلاین کش کند.
+- اگر روزی Settings → Pages → Source روی **GitHub Actions** بگذارده شود، artifact مستقیماً منتشر می‌شود و پرش `./app/` هم بی‌اثر می‌شود (خودکار؛ نیازی به تغییر کد نیست).
 
 ## آفلاین
 
