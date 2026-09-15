@@ -1,4 +1,4 @@
-// اجرای تست‌های منطقی: باندل ورودی با esbuild (همان وابستگی‌ای که Vite استفاده می‌کند) و اجرا در Node.
+// اجرای تست‌ها: باندل ورودی‌ها با esbuild (همان وابستگی‌ای که Vite استفاده می‌کند) و اجرا در Node.
 import { build } from "esbuild";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,18 +7,37 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const entry = join(__dirname, "logic-test.entry.mts");
-const out = join(mkdtempSync(join(tmpdir(), "cyber-test-")), "logic-test.mjs");
 
-await build({
-  entryPoints: [entry],
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node18",
-  outfile: out,
-  logLevel: "warning",
-});
+const suites = [
+  {
+    name: "logic",
+    entry: join(__dirname, "logic-test.entry.mts"),
+    alias: {},
+  },
+  {
+    name: "engine",
+    entry: join(__dirname, "engine-test.entry.mts"),
+    // در تست موتور، WebGLRenderer با استاب headless جایگزین می‌شود تا بدون GPU اجرا شود
+    alias: { three: join(__dirname, "three-headless-stub.mts") },
+  },
+];
 
-const res = spawnSync(process.execPath, [out], { stdio: "inherit" });
-process.exit(res.status ?? 1);
+let failed = false;
+for (const s of suites) {
+  console.log(`\n===== suite: ${s.name} =====`);
+  const out = join(mkdtempSync(join(tmpdir(), `cyber-test-${s.name}-`)), `${s.name}-test.mjs`);
+  await build({
+    entryPoints: [s.entry],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node18",
+    outfile: out,
+    alias: s.alias,
+    logLevel: "warning",
+  });
+  const res = spawnSync(process.execPath, [out], { stdio: "inherit" });
+  if ((res.status ?? 1) !== 0) failed = true;
+}
+
+process.exit(failed ? 1 : 0);

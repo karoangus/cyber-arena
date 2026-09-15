@@ -43,6 +43,13 @@ export default function App() {
   const [banner, setBanner] = useState<{ id: number; text: string } | null>(null);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [hint, setHint] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  // علامت زنده‌بودن ری‌اکت برای اسکریپت بوت index.html (تشخیص لودنشدن ماژول‌ها)
+  useEffect(() => {
+    (window as unknown as { __CYBER_MOUNTED__?: boolean }).__CYBER_MOUNTED__ = true;
+  }, []);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -107,7 +114,7 @@ export default function App() {
     eventRef.current = handleEvent;
   }, [handleEvent]);
 
-  // ساخت بازی
+  // ساخت بازی (با مهار خطای WebGL تا به‌جای صفحه‌ی سیاه، پیام فارسی ببینیم)
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -118,33 +125,46 @@ export default function App() {
     canvas.style.touchAction = "none";
     host.appendChild(canvas);
 
-    const g = new Game(canvas, {
-      onState: (s) => setHud(s),
-      onEvent: (e) => eventRef.current(e),
-      onAutoPause: () => {
-        if (phaseRef.current === "playing") {
-          setPhase("paused");
-          gameRef.current?.pause();
-        }
-      },
-    });
-    g.sensitivity = settingsRef.current.sensitivity;
-    g.autoFire = settingsRef.current.autoFire;
-    g.haptics = settingsRef.current.haptics;
-    gameRef.current = g;
-    setGame(g);
+    let g: Game | null = null;
+    try {
+      g = new Game(canvas, {
+        onState: (s) => setHud(s),
+        onEvent: (e) => eventRef.current(e),
+        onAutoPause: () => {
+          if (phaseRef.current === "playing") {
+            setPhase("paused");
+            gameRef.current?.pause();
+          }
+        },
+      });
+    } catch (err) {
+      console.error("[cyber-arena] ساخت موتور بازی شکست خورد:", err);
+      canvas.remove();
+      setInitError(
+        err instanceof Error && /webgl|context/i.test(err.message)
+          ? "مرورگر نتوانست WebGL را راه‌اندازی کند. شتاب سخت‌افزاری (Hardware Acceleration) را در تنظیمات مرورگر فعال کن یا از Chrome/Safari به‌روز استفاده کن."
+          : "راه‌اندازی گرافیک سه‌بعدی شکست خورد. لطفاً صفحه را رفرش کن یا مرورگر دیگری امتحان کن."
+      );
+      return;
+    }
+    const game = g;
+    game.sensitivity = settingsRef.current.sensitivity;
+    game.autoFire = settingsRef.current.autoFire;
+    game.haptics = settingsRef.current.haptics;
+    gameRef.current = game;
+    setGame(game);
 
-    const onOrient = () => g.resize();
+    const onOrient = () => game.resize();
     window.addEventListener("orientationchange", onOrient);
 
     return () => {
       window.removeEventListener("orientationchange", onOrient);
-      g.dispose();
+      game.dispose();
       canvas.remove();
       gameRef.current = null;
       setGame(null);
     };
-  }, []);
+  }, [retryKey]);
 
   const startGame = useCallback(() => {
     const g = gameRef.current;
@@ -241,6 +261,33 @@ export default function App() {
         />
       )}
       {phase === "dead" && <GameOverOverlay hud={hud} best={best} onRestart={restartGame} onMenu={toMenu} />}
+
+      {initError && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#05060f]/95 px-4">
+          <div className="glass w-full max-w-sm rounded-3xl p-6 text-center">
+            <div className="text-4xl">🎮⚠️</div>
+            <div className="mt-2 text-xl font-extrabold text-rose-200">گرافیک بازی لود نشد</div>
+            <p className="mt-2 text-xs leading-relaxed text-cyan-100/70">{initError}</p>
+            <div className="mt-4 space-y-2">
+              <button
+                onClick={() => {
+                  setInitError(null);
+                  setRetryKey((k) => k + 1);
+                }}
+                className="touch-btn w-full rounded-2xl border border-cyan-200/40 bg-gradient-to-b from-cyan-400/85 to-sky-700/85 py-3 font-extrabold text-white"
+              >
+                تلاش دوباره
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="touch-btn w-full rounded-2xl border border-slate-400/25 bg-slate-800/70 py-2.5 text-sm font-bold text-cyan-100"
+              >
+                رفرش صفحه
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

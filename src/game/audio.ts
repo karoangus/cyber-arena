@@ -35,8 +35,6 @@ export class SoundEngine {
     }
     if (!v) {
       this.stopAmbient();
-      this.ambientGain = null;
-      this.ambientNodes = [];
     } else {
       this.startAmbient();
     }
@@ -166,10 +164,15 @@ export class SoundEngine {
 
   stopAmbient() {
     const ctx = this.ctx;
-    if (this.ambientGain && ctx) {
-      this.ambientGain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+    const gain = this.ambientGain;
+    const nodes = this.ambientNodes;
+    // وضعیت را فوری آزاد کن تا startAmbient بعدی بتواند از نو بسازد
+    this.ambientGain = null;
+    this.ambientNodes = [];
+    if (gain && ctx) {
+      gain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
       const stopAt = ctx.currentTime + 0.4;
-      for (const node of this.ambientNodes) {
+      for (const node of nodes) {
         const stoppable = node as { stop?: (t?: number) => void };
         if (typeof stoppable.stop === "function") {
           try {

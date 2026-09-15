@@ -33,5 +33,21 @@ export function saveSettings(s: Settings) {
 }
 
 export function bestScore(): number {
-  return Number(localStorage.getItem("cyber_best") || 0);
+  try {
+    const n = Number(localStorage.getItem("cyber_best") || 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    // دسترسی به حافظه ممکن است بلاک باشد (حالت خصوصی/آی‌فریم محدود) — بازی نباید بترکد
+    return 0;
+  }
+}
+
+/** ذخیره رکورد (در صورت بلاک بودن حافظه، بی‌صدا نادیده گرفته می‌شود) */
+export function saveBest(score: number) {
+  try {
+    const prev = bestScore();
+    if (score > prev) localStorage.setItem("cyber_best", String(Math.round(score)));
+  } catch {
+    /* ignore */
+  }
 }
