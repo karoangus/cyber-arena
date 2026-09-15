@@ -43,6 +43,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # اطمینان از اینکه Pages در حالت «GitHub Actions» (artifact) است، نه «Deploy from branch».
+      # در حالت legacy، سورس خام مخزن سرو می‌شود که مرورگر نمی‌تواند اجرا کند (باگ قبلی «بازی لود نشد»).
+      - name: Ensure Pages uses artifact (Actions) deployment mode
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo '{"build_type":"workflow"}' > pages-mode.json
+          if gh api -X PUT "repos/${{ github.repository }}/pages" --input pages-mode.json; then
+            echo "Pages switched to workflow (artifact) mode."
+          else
+            echo "::warning::Could not switch Pages mode automatically — flip it manually: Settings → Pages → Build and deployment → Source: GitHub Actions"
+          fi
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
