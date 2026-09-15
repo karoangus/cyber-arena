@@ -22,13 +22,63 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- فونت به‌صورت non-blocking: اگر CDN گوگل کند/بلاک باشد، لود و نمایش بازی معطل نمی‌ماند -->
     <link
       href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
     <title>نبرد سایبری | بازی اول‌شخص سه‌بعدی</title>
+    <script>
+      // نگهبان بوت: اگر ماژول‌های بازی لود نشوند (خطای شبکه/اسکریپت)،
+      // به‌جای اسپینر بی‌پایان پیام فارسی + دکمه‌ی تلاش دوباره نشان بده.
+      (function () {
+        window.__CYBER_MOUNTED__ = false;
+        window.__CYBER_BOOT_ERROR__ = false;
+        function showBootError(title, desc) {
+          if (window.__CYBER_MOUNTED__ || window.__CYBER_BOOT_ERROR__) return;
+          window.__CYBER_BOOT_ERROR__ = true;
+          var root = document.getElementById("root");
+          if (!root) return;
+          root.innerHTML =
+            '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05060f;padding:16px;font-family:system-ui,Tahoma,sans-serif;direction:rtl;">' +
+            '<div style="max-width:22rem;width:100%;text-align:center;border:1px solid rgba(34,211,238,.25);border-radius:20px;padding:24px;background:rgba(15,23,42,.85);">' +
+            '<div style="font-size:36px;">📡</div>' +
+            '<div style="margin-top:8px;font-size:18px;font-weight:800;color:#fecdd3;">' + title + "</div>" +
+            '<div style="margin-top:8px;font-size:12px;line-height:1.9;color:rgba(207,250,254,.75);">' + desc + "</div>" +
+            '<button onclick="location.reload()" style="margin-top:16px;width:100%;padding:12px;border-radius:14px;border:1px solid rgba(165,243,252,.4);background:linear-gradient(#22d3ee,#0369a1);color:#fff;font-weight:800;font-size:14px;cursor:pointer;">تلاش دوباره</button>' +
+            "</div></div>";
+        }
+        window.addEventListener(
+          "error",
+          function (e) {
+            var tgt = e ? e.target : null;
+            // خطای لود منابع غیرحیاتی (فونت/آیکون/منیفست) نباید صفحه‌ی خطا بیاورد؛ بازی بدون آن‌ها هم کار می‌کند
+            if (tgt && tgt !== window && (tgt.tagName === "LINK" || tgt.tagName === "IMG")) return;
+            showBootError("بازی لود نشد", "فایل‌های بازی کامل دانلود نشدند. اتصال اینترنت را بررسی کن و دوباره تلاش کن.");
+          },
+          true
+        );
+        window.addEventListener("unhandledrejection", function () {
+          showBootError("بازی لود نشد", "خطایی در راه‌اندازی بازی رخ داد. صفحه را رفرش کن و دوباره تلاش کن.");
+        });
+        // اگر بعد از ۲۵ ثانیه ری‌اکت بالا نیامد، احتمالاً ماژول‌ها گیر کرده‌اند
+        setTimeout(function () {
+          showBootError(
+            "لود بازی طول کشید",
+            "به نظر می‌رسد دانلود بازی گیر کرده است. اتصال اینترنت را بررسی کن، فیلترشکن را امتحان کن و صفحه را رفرش کن."
+          );
+        }, 25000);
+      })();
+    </script>
   </head>
   <body>
+    <noscript>
+      <div style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #05060f; color: #fecdd3; font-family: Tahoma, system-ui, sans-serif; direction: rtl; padding: 16px; text-align: center;">
+        برای اجرای «نبرد سایبری» باید JavaScript مرورگر فعال باشد.
+      </div>
+    </noscript>
     <div id="root">
       <div
         style="

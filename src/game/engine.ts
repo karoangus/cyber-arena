@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { sound } from "./audio";
 import { ParticleSystem, TracerPool } from "./effects";
+import { saveBest } from "./settings";
 import type { GameOptions, HudState } from "./types";
 import { ARENA, buildWorld, resolveCircle, segmentBlocked, type Box, type WorldRefs } from "./world";
 
@@ -28,6 +29,7 @@ interface Enemy {
   burstCd: number;
   scoreValue: number;
   hoverY: number;
+  baseScale: number;
 }
 
 interface Orb {
@@ -228,6 +230,9 @@ export class Game {
       this.opts.onAutoPause?.();
       return;
     }
+    // وقتی کاربر با یک کنترل فرم (مثلاً اسلایدر حساسیت) کار می‌کند، کلیدها مال بازی نیستند
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     this.keys.add(e.code);
     if (e.code === "Space") {
       this.wantJump = true;
@@ -253,6 +258,22 @@ export class Game {
   private onVisibility = () => {
     if (document.visibilityState === "hidden" && this.running && !this.paused) this.opts.onAutoPause?.();
   };
+  private hadRealLock = false;
+  private onLockChange = () => {
+    // همگام‌سازی با قفل واقعی مرورگر (Esc باعث خروج خودکار از قفل می‌شود)
+    if (document.pointerLockElement === this.canvas) {
+      this.locked = true;
+      this.hadRealLock = true;
+    } else if (this.hadRealLock && document.pointerLockElement == null) {
+      this.locked = false;
+      this.hadRealLock = false;
+      this.firing = false;
+    }
+    // اگر مرورگر اصلاً قفل نداد (آی‌فریم بدون مجوز)، حالت خوش‌بینانه حفظ می‌شود تا بازی با movementX کار کند
+  };
+  private onLockError = () => {
+    // خطای قفل نباید بازی را متوقف کند؛ ورودی ماوس بدون قفل هم ادامه می‌یابد
+  };
   private onResize = () => this.resize();
   private onContext = (e: Event) => e.preventDefault();
 
@@ -266,6 +287,8 @@ export class Game {
     canvas.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("visibilitychange", this.onVisibility);
+    document.addEventListener("pointerlockchange", this.onLockChange);
+    document.addEventListener("pointerlockerror", this.onLockError);
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
     canvas.addEventListener("contextmenu", this.onContext);
@@ -326,7 +349,8 @@ export class Game {
   }
 
   restart() {
-    for (const e of this.enemies) this.removeEnemy(e, false);
+    // تخلیه با حلقه‌ی while: removeEnemy داخل آرایه splice می‌کند و for..of باعث جاماندن دشمن می‌شد
+    while (this.enemies.length > 0) this.removeEnemy(this.enemies[0], false);
     this.enemies.length = 0;
     for (const o of this.orbs) {
       o.active = false;
@@ -369,6 +393,8 @@ export class Game {
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mouseup", this.onMouseUp);
     document.removeEventListener("visibilitychange", this.onVisibility);
+    document.removeEventListener("pointerlockchange", this.onLockChange);
+    document.removeEventListener("pointerlockerror", this.onLockError);
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
     this.canvas?.removeEventListener("mousedown", this.onMouseDown);
@@ -422,7 +448,8 @@ export class Game {
     this.blastRing.position.set(p.x, 0.25, p.z);
     this.blastRing.scale.setScalar(0.6);
     (this.blastRing.material as THREE.MeshBasicMaterial).opacity = 0.85;
-    for (const e of this.enemies) {
+    // روی کپی حلقه می‌زنیم چون hurtEnemy ممکن است دشمن را kill و از آرایه حذف (splice) کند
+    for (const e of [...this.enemies]) {
       if (!e.alive) continue;
       const d = e.pos.distanceTo(p);
       if (d < 11) {
@@ -636,8 +663,11 @@ export class Game {
     }
     if (!this.alive || this.paused) return;
     this.lockTick = (this.lockTick + 1) % 2;
-    if (this.autoFire && this.lockTick === 0 && this.ammo > 0 && !this.reloading) {
-      this.currentLock = this.castShot(true).enemy !== null;
+    if (this.autoFire && this.ammo > 0 && !this.reloading) {
+      if (this.lockTick === 0) this.currentLock = this.castShot(true).enemy !== null;
+    } else {
+      // قفل کهنه نماند: با خشاب خالی/ریلود، شلیک خودکار ادامه پیدا نکند
+      this.currentLock = false;
     }
     const shouldFire = this.firing || (this.autoFire && this.currentLock);
     if (shouldFire && !this.reloading && this.fireCd <= 0) {
@@ -747,7 +777,8 @@ export class Game {
     e.hp -= dmg;
     e.hitFlash = 1;
     if (hitPoint) {
-      const kb = hitPoint.clone().sub(e.pos).setY(0);
+      // پس‌زنی باید دشمن را از بازیکن دور کند (قبلاً به‌سمت بازیکن کشیده می‌شد)
+      const kb = e.pos.clone().sub(this.pos).setY(0);
       if (kb.lengthSq() > 1e-5) e.vel.addScaledVector(kb.normalize(), 1.2);
     }
     if (e.hp <= 0) this.killEnemy(e);
@@ -830,6 +861,7 @@ export class Game {
       burstCd: 0,
       scoreValue: st.score,
       hoverY: st.hover * scale * 0.5 + st.hover * 0.5,
+      baseScale: kind === "heavy" ? 1.15 : 1,
     });
     this.particles.burst(at.clone().add(new THREE.Vector3(0, 1, 0)), 16, new THREE.Color(st.color), { speed: 5, gravity: -1, life: 0.6, size: 0.5 });
   }
@@ -842,7 +874,7 @@ export class Game {
       if (e.spawnT > 0) {
         e.spawnT -= dt;
         const k = 1 - Math.max(0, e.spawnT) / 0.6;
-        e.group.scale.setScalar(0.15 + k * 0.85 * (e.kind === "heavy" ? 1.15 : 1));
+        e.group.scale.setScalar(0.15 + k * (e.baseScale - 0.15));
         if (e.spawnT > 0) continue;
       }
       const toPlayer = playerChest.clone().sub(e.pos);
@@ -923,7 +955,7 @@ export class Game {
         e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
         const m = e.core.material as THREE.MeshPhongMaterial;
         m.emissiveIntensity = 0.35 + e.hitFlash * 2.4;
-        e.group.scale.setScalar(1 + e.hitFlash * 0.12);
+        e.group.scale.setScalar(e.baseScale * (1 + e.hitFlash * 0.12));
       }
     }
   }
@@ -988,8 +1020,7 @@ export class Game {
       this.firing = false;
       this.combo = 0;
       sound.hurtPlayer();
-      const best = Number(localStorage.getItem("cyber_best") || 0);
-      if (this.score > best) localStorage.setItem("cyber_best", String(Math.round(this.score)));
+      saveBest(this.score);
       this.opts.onEvent({ type: "death" });
       this.emitState(true);
     }
