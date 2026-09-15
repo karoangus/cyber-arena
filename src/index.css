@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* فونت وزیرمتن — لوکال و باندل‌شده (بدون هیچ CDN خارجی؛ بازی کاملاً آفلاین اجرا می‌شود)
+   فونت متغیر: یک فایل برای همه‌ی وزن‌ها (۱۰۰ تا ۹۰۰). مجوز: OFL (کنار فایل). */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("./assets/fonts/Vazirmatn-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --neon: #22d3ee;

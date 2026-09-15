@@ -10,6 +10,8 @@ const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
 export default defineConfig({
+  // مسیر نسبی تا بازی در هر زیرپوشه‌ای (مثل GitHub Pages /cyber-arena/) درست کار کند
+  base: "./",
   plugins: [react(), tailwindcss(), viteSingleFile()],
   resolve: {
     alias: {

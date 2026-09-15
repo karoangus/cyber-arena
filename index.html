@@ -20,35 +20,72 @@
     <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- فونت به‌صورت non-blocking: اگر CDN گوگل کند/بلاک باشد، لود و نمایش بازی معطل نمی‌ماند -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap"
-      rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
-    />
+    <!-- بازی ۱۰۰٪ آفلاین است: هیچ درخواستی به اینترنت (حتی فونت) ندارد.
+         فونت وزیرمتن به‌صورت لوکال از src/assets/fonts در CSS لود می‌شود. -->
     <title>نبرد سایبری | بازی اول‌شخص سه‌بعدی</title>
     <script>
-      // نگهبان بوت: اگر ماژول‌های بازی لود نشوند (خطای شبکه/اسکریپت)،
-      // به‌جای اسپینر بی‌پایان پیام فارسی + دکمه‌ی تلاش دوباره نشان بده.
+      // نگهبان بوت: اگر ماژول‌های بازی لود نشوند، به‌جای اسپینر بی‌پایان پیام فارسی بده.
+      // بازی کاملاً آفلاین اجرا می‌شود؛ پس دیگر «اینترنت» مقصر نیست — پیام‌ها وضعیت واقعی را نشان می‌دهند.
       (function () {
         window.__CYBER_MOUNTED__ = false;
         window.__CYBER_BOOT_ERROR__ = false;
-        function showBootError(title, desc) {
+        function card(inner) {
+          return (
+            '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05060f;padding:16px;font-family:system-ui,Tahoma,sans-serif;direction:rtl;">' +
+            '<div style="max-width:22rem;width:100%;text-align:center;border:1px solid rgba(34,211,238,.25);border-radius:20px;padding:24px;background:rgba(15,23,42,.85);">' +
+            inner +
+            "</div></div>"
+          );
+        }
+        function btn(label, onclick, primary) {
+          return (
+            '<button onclick="' +
+            onclick +
+            '" style="margin-top:12px;width:100%;padding:12px;border-radius:14px;border:1px solid rgba(165,243,252,.4);background:' +
+            (primary ? "linear-gradient(#22d3ee,#0369a1)" : "rgba(30,41,59,.8)") +
+            ';color:#fff;font-weight:800;font-size:14px;cursor:pointer;">' +
+            label +
+            "</button>"
+          );
+        }
+        function showBootError(title, desc, offline) {
           if (window.__CYBER_MOUNTED__ || window.__CYBER_BOOT_ERROR__) return;
           window.__CYBER_BOOT_ERROR__ = true;
           var root = document.getElementById("root");
           if (!root) return;
-          root.innerHTML =
-            '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05060f;padding:16px;font-family:system-ui,Tahoma,sans-serif;direction:rtl;">' +
-            '<div style="max-width:22rem;width:100%;text-align:center;border:1px solid rgba(34,211,238,.25);border-radius:20px;padding:24px;background:rgba(15,23,42,.85);">' +
-            '<div style="font-size:36px;">📡</div>' +
+          var extra = offline
+            ? btn("اتصال را وصل کن و تلاش کن", "location.reload()", true)
+            : btn("تلاش دوباره", "location.reload()", true) +
+              btn("پاک کردن کش و شروع دوباره", "window.__CYBER_PURGE__ && window.__CYBER_PURGE__()", false);
+          root.innerHTML = card(
+            '<div style="font-size:36px;">' + (offline ? "📴" : "🎮") + "</div>" +
             '<div style="margin-top:8px;font-size:18px;font-weight:800;color:#fecdd3;">' + title + "</div>" +
             '<div style="margin-top:8px;font-size:12px;line-height:1.9;color:rgba(207,250,254,.75);">' + desc + "</div>" +
-            '<button onclick="location.reload()" style="margin-top:16px;width:100%;padding:12px;border-radius:14px;border:1px solid rgba(165,243,252,.4);background:linear-gradient(#22d3ee,#0369a1);color:#fff;font-weight:800;font-size:14px;cursor:pointer;">تلاش دوباره</button>' +
-            "</div></div>";
+            extra
+          );
+        }
+        // پاک‌سازی کامل کش سرویس‌ورکرهای قبلی (مثلاً نسخه‌ی خراب قبلی سایت) و رفرش
+        window.__CYBER_PURGE__ = function () {
+          try {
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (r) { r.unregister(); });
+                if (window.caches && caches.keys) {
+                  caches.keys().then(function (keys) {
+                    keys.forEach(function (k) { caches.delete(k); });
+                    location.reload();
+                  });
+                } else {
+                  location.reload();
+                }
+              }).catch(function () { location.reload(); });
+            } else {
+              location.reload();
+            }
+          } catch (e) { location.reload(); }
+        };
+        function offlineNow() {
+          return typeof navigator !== "undefined" && navigator.onLine === false;
         }
         window.addEventListener(
           "error",
@@ -56,19 +93,28 @@
             var tgt = e ? e.target : null;
             // خطای لود منابع غیرحیاتی (فونت/آیکون/منیفست) نباید صفحه‌ی خطا بیاورد؛ بازی بدون آن‌ها هم کار می‌کند
             if (tgt && tgt !== window && (tgt.tagName === "LINK" || tgt.tagName === "IMG")) return;
-            showBootError("بازی لود نشد", "فایل‌های بازی کامل دانلود نشدند. اتصال اینترنت را بررسی کن و دوباره تلاش کن.");
+            if (offlineNow()) {
+              showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. بازی بعد از اولین بارگذاری کاملاً بدون اینترنت اجرا می‌شود؛ برای اولین بار اینترنت را وصل کن و یک‌بار بازی را باز کن.", true);
+            } else {
+              showBootError("بازی لود نشد", "خطایی در اجرای فایل‌های بازی رخ داد. معمولاً پاک‌کردن کش قدیمی مشکل را حل می‌کند.", false);
+            }
           },
           true
         );
-        window.addEventListener("unhandledrejection", function () {
-          showBootError("بازی لود نشد", "خطایی در راه‌اندازی بازی رخ داد. صفحه را رفرش کن و دوباره تلاش کن.");
+        window.addEventListener("unhandledrejection", function (e) {
+          if (offlineNow()) {
+            showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. بازی بعد از اولین بارگذاری کاملاً بدون اینترنت اجرا می‌شود؛ اینترنت را وصل کن و یک‌بار بازی را باز کن.", true);
+          } else {
+            showBootError("بازی لود نشد", "خطایی در راه‌اندازی بازی رخ داد. اگر با «تلاش دوباره» درست نشد، کش قدیمی را پاک کن.", false);
+          }
         });
-        // اگر بعد از ۲۵ ثانیه ری‌اکت بالا نیامد، احتمالاً ماژول‌ها گیر کرده‌اند
+        // اگر بعد از ۲۵ ثانیه ری‌اکت بالا نیامد، فایل‌های بازی ناقص رسیده‌اند یا کش قدیمی خراب است
         setTimeout(function () {
-          showBootError(
-            "لود بازی طول کشید",
-            "به نظر می‌رسد دانلود بازی گیر کرده است. اتصال اینترنت را بررسی کن، فیلترشکن را امتحان کن و صفحه را رفرش کن."
-          );
+          if (offlineNow()) {
+            showBootError("دستگاه آفلاین است", "اینترنت وصل نیست. برای اولین بارگذاری اینترنت لازم است؛ بعد از آن بازی کامل آفلاین اجرا می‌شود.", true);
+          } else {
+            showBootError("لود بازی طول کشید", "فایل‌های بازی درست باز نشدند — احتمالاً کش قدیمیِ نسخه‌ی قبلی سایت مانده. با دکمه‌ی زیر کش را پاک کن.", false);
+          }
         }, 25000);
       })();
     </script>
