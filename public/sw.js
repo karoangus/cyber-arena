@@ -1,12 +1,24 @@
-/* سرویس‌ورکر نبرد سایبری — نصب‌پذیری و اجرای آفلاین پوسته‌ی اپ */
-const VERSION = "cyber-arena-v1";
-const CORE = ["./", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
+/* سرویس‌ورکر نبرد سایبری — اجرای ۱۰۰٪ آفلاین
+   کل پوسته‌ی بازی (تک‌فایل HTML + آیکون‌ها + منیفست) از قبل کش می‌شود؛
+   بعد از اولین بازدید، بازی بدون هیچ اینترنتی بالا می‌آید. */
+const VERSION = "cyber-arena-v2-offline";
+const SHELL = [
+  "./",
+  "./index.html",
+  "./manifest.webmanifest",
+  "./icons/icon.svg",
+  "./icons/favicon-32.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/maskable-512.png",
+];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches
       .open(VERSION)
-      .then((c) => c.addAll(CORE))
+      .then((c) => c.addAll(SHELL))
       .then(() => self.skipWaiting())
   );
 });
@@ -15,7 +27,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== VERSION + "-fonts").map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -25,51 +37,24 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // فونت وزیرمتن: کش بلندمدت تا در حالت آفلاین هم متن درست نمایش یابد
-  if (url.origin === "https://fonts.googleapis.com" || url.origin === "https://fonts.gstatic.com") {
-    e.respondWith(
-      caches.open(VERSION + "-fonts").then((c) =>
-        c.match(req).then(
-          (hit) =>
-            hit ||
-            fetch(req).then((res) => {
-              if (res.ok) c.put(req, res.clone());
-              return res;
-            })
-        )
-      )
-    );
-    return;
-  }
-
+  // بازی هیچ وابستگی خارجی ندارد؛ درخواست‌های خارج از مبدأ را رد کن
   if (url.origin !== self.location.origin) return;
 
-  // ناوبری: اول شبکه (تا نسخه‌ی جدید همیشه برسد)، در قطعی از کش
-  if (req.mode === "navigate") {
-    e.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put("./", copy));
-          return res;
-        })
-        .catch(() => caches.match("./"))
-    );
-    return;
-  }
-
-  // استاتیک: اول کش، بعد شبکه
+  // آفلاین‌اول (stale-while-revalidate):
+  // ۱) جواب فوری از کش (حتی بدون اینترنت)
+  // ۲) به‌روزرسانی کش در پس‌زمینه، تا نسخه‌ی جدید در بازدید بعدی اعمال شود
   e.respondWith(
-    caches.match(req).then(
-      (hit) =>
-        hit ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
+    caches.open(VERSION).then((cache) =>
+      cache.match(req, { ignoreSearch: req.mode === "navigate" }).then((hit) => {
+        const network = fetch(req)
+          .then((res) => {
+            if (res && res.ok) cache.put(req.mode === "navigate" ? new Request("./") : req, res.clone());
+            return res;
+          })
+          .catch(() => hit || Response.error());
+        // اگر در کش بود، همان را فوری برگردان؛ شبکه در پس‌زمینه کش را تازه می‌کند
+        return hit || network;
+      })
     )
   );
 });

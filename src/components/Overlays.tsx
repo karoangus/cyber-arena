@@ -129,7 +129,18 @@ export function StartScreen({
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [installable, setInstallable] = useState(false);
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
   useEffect(() => onInstallable(setInstallable), []);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
   return (
     <div className="scan-lines allow-scroll absolute inset-0 z-40 overflow-y-auto bg-gradient-to-b from-slate-950/92 via-slate-950/95 to-black/95 px-4 py-6 backdrop-blur-sm">
       <div className="mx-auto flex min-h-full max-w-md flex-col justify-center gap-4">
@@ -139,6 +150,14 @@ export function StartScreen({
           <p className="mt-2 text-xs text-cyan-200/70">
             شوتر اول‌شخص سه‌بعدی مخصوص موبایل — در میدان نئونی زنده بمان و موج‌های ربات‌ها را نابود کن.
           </p>
+          <div
+            className={`mx-auto mt-3 flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-bold ${
+              online ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-300" : "border-amber-400/30 bg-amber-500/10 text-amber-300"
+            }`}
+          >
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400" : "bg-amber-400"}`} />
+            {online ? "این بازی بدون اینترنت هم اجرا می‌شود ✅" : "آفلاینی — بازی کامل و بدون مشکل اجرا می‌شود ✅"}
+          </div>
         </div>
 
         {best > 0 && (
