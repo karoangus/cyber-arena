@@ -31,6 +31,9 @@ export default defineConfig({
   },
   build: {
     target: "es2020",
+    // خروجی در app/ ساخته و در مخزن کامیت می‌شود تا GitHub Pages حالت legacy
+    // (سرو ریشه‌ی مخزن) هم بازیِ ساخته‌شده را سرو کند — index.html ریشه به ./app/ پرش می‌کند.
+    outDir: "app",
     assetsInlineLimit: 100000000,
     reportCompressedSize: false,
   },

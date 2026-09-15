@@ -1,0 +1,22 @@
+{
+  "name": "نبرد سایبری — Cyber Arena 3D",
+  "short_name": "نبرد سایبری",
+  "description": "شوتر اول‌شخص سه‌بعدی — در میدان نئونی زنده بمان و موج‌های ربات‌ها را نابود کن.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "dir": "rtl",
+  "lang": "fa",
+  "background_color": "#05060f",
+  "theme_color": "#05060f",
+  "categories": ["games", "action", "entertainment"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/favicon-32.png", "sizes": "32x32", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
