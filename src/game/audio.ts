@@ -137,6 +137,93 @@ export class SoundEngine {
     this.blip(220, 0.5, "square", 0.16, 70);
   }
 
+  /* ------------------------- صدا‌های نسخه‌ی جدید ------------------------- */
+
+  /** قدم‌ها (با شدت حرکت) */
+  step(power = 1) {
+    this.noiseBurst(0.06, 220 + power * 120, 0.07 + power * 0.07, 1.4);
+  }
+
+  /** فرود بعد از پرش */
+  land() {
+    this.noiseBurst(0.16, 140, 0.24, 0.8);
+    this.blip(90, 0.16, "sine", 0.16, 45);
+  }
+
+  /** مشت */
+  punch() {
+    this.noiseBurst(0.1, 420, 0.26, 0.7);
+    this.blip(180, 0.12, "square", 0.16, 70);
+  }
+
+  /** برش چاقو */
+  slash() {
+    this.noiseBurst(0.16, 3200, 0.14, 2.4);
+    this.blip(1200, 0.14, "triangle", 0.1, 420);
+  }
+
+  /** برخورد ضربه‌ی نزدیک */
+  meleeHit() {
+    this.noiseBurst(0.14, 700, 0.3, 0.9);
+    this.blip(240, 0.16, "sawtooth", 0.2, 90);
+  }
+
+  /** تعویض اسلات */
+  swap() {
+    this.noiseBurst(0.05, 1800, 0.12, 3);
+    window.setTimeout(() => this.blip(720, 0.07, "sine", 0.12, 980), 60);
+  }
+
+  /** نشانه‌گیری */
+  aim(on: boolean) {
+    this.blip(on ? 900 : 620, 0.05, "sine", 0.1, on ? 1300 : 420);
+  }
+
+  /** غرش باس */
+  bossRoar() {
+    this.blip(70, 1.1, "sawtooth", 0.32, 34);
+    this.noiseBurst(1.0, 180, 0.3, 0.4);
+    window.setTimeout(() => this.blip(110, 0.7, "square", 0.18, 48), 220);
+  }
+
+  /** شلیک باس */
+  bossShot() {
+    this.blip(150, 0.24, "sawtooth", 0.2, 55);
+    this.noiseBurst(0.2, 700, 0.18, 0.9);
+  }
+
+  /** انفجار باس */
+  bossDie() {
+    this.noiseBurst(1.4, 240, 0.45, 0.35);
+    this.blip(140, 1.2, "sawtooth", 0.3, 28);
+    window.setTimeout(() => this.blip(660, 0.5, "triangle", 0.2, 1200), 500);
+  }
+
+  /** سکه/پول */
+  coin() {
+    this.blip(1180, 0.06, "square", 0.1);
+    window.setTimeout(() => this.blip(1560, 0.1, "square", 0.09), 55);
+  }
+
+  /** خرید موفق */
+  buy() {
+    this.blip(620, 0.08, "sine", 0.16);
+    window.setTimeout(() => this.blip(880, 0.09, "sine", 0.16), 70);
+    window.setTimeout(() => this.blip(1320, 0.16, "sine", 0.15), 150);
+  }
+
+  /** خرید ناموفق */
+  deny() {
+    this.blip(200, 0.14, "square", 0.14, 120);
+  }
+
+  /** باز شدن شاپ */
+  shopOpen() {
+    this.blip(520, 0.12, "triangle", 0.16);
+    window.setTimeout(() => this.blip(780, 0.14, "triangle", 0.16), 120);
+    window.setTimeout(() => this.blip(1040, 0.24, "triangle", 0.16), 250);
+  }
+
   startAmbient() {
     const ctx = this.ensure();
     if (!ctx || !this.master || !this.enabled || this.ambientGain) return;

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hud from "./components/Hud";
 import TouchControls from "./components/TouchControls";
-import { FullscreenButton, GameOverOverlay, OrientationHint, PauseOverlay, StartScreen } from "./components/Overlays";
+import { FullscreenButton, GameOverOverlay, OrientationHint, PauseOverlay, ShopOverlay, StartScreen } from "./components/Overlays";
 import { sound } from "./game/audio";
 import { Game } from "./game/engine";
 import { bestScore, loadSettings, saveSettings, type Settings } from "./game/settings";
 import type { GameEvent, HudState } from "./game/types";
 
-type Phase = "menu" | "playing" | "paused" | "dead";
+type Phase = "menu" | "playing" | "paused" | "dead" | "shop";
 
 const emptyHud: HudState = {
   hp: 100,
@@ -25,6 +25,30 @@ const emptyHud: HudState = {
   sprinting: false,
   alive: true,
   running: false,
+  money: 0,
+  weaponLevel: 0,
+  weaponDamage: 12,
+  hasKnife: false,
+  slot: "gun",
+  aiming: false,
+  meleeReady: 1,
+  meleeDamage: 20,
+  meleeRange: 2.6,
+  boss: null,
+  nextBossWave: 10,
+  breakTime: 0,
+  shopAvailable: false,
+  shop: {
+    damageCost: 5,
+    damageLevel: 0,
+    damageMax: 3,
+    ammoCost: 2,
+    ammoAmount: 50,
+    knifeCost: 20,
+    hasKnife: false,
+    reserve: 240,
+    reserveCap: 480,
+  },
 };
 
 export default function App() {
@@ -39,7 +63,7 @@ export default function App() {
   const [best, setBest] = useState(() => bestScore());
   const [hitId, setHitId] = useState(0);
   const [dmgId, setDmgId] = useState(0);
-  const [floats, setFloats] = useState<{ id: number; text: string }[]>([]);
+  const [floats, setFloats] = useState<{ id: number; text: string; tone?: "score" | "cash" }[]>([]);
   const [banner, setBanner] = useState<{ id: number; text: string } | null>(null);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [hint, setHint] = useState(false);
@@ -53,6 +77,20 @@ export default function App() {
 
   useEffect(() => {
     phaseRef.current = phase;
+  }, [phase]);
+
+  // Escape هنگام باز بودن شاپ = بستن شاپ و ادامه‌ی بازی
+  useEffect(() => {
+    if (phase !== "shop") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Escape") {
+        e.preventDefault();
+        gameRef.current?.resume();
+        setPhase("playing");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
   useEffect(() => {
@@ -74,8 +112,37 @@ export default function App() {
         break;
       case "kill": {
         const id = performance.now() + Math.random();
-        setFloats((f) => [...f.slice(-4), { id, text: e.text ?? "+" }]);
+        setFloats((f) => [...f.slice(-4), { id, text: e.text ?? "+", tone: "score" }]);
         window.setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 950);
+        break;
+      }
+      case "cash": {
+        // پول شناور سبز: هر کیل ۱ دلار، باس ۱۰ دلار
+        const id = performance.now() + Math.random();
+        setFloats((f) => [...f.slice(-5), { id, text: `$+${e.amount ?? 1}`, tone: "cash" }]);
+        window.setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1100);
+        break;
+      }
+      case "melee":
+        setHitId((v) => v + 1);
+        break;
+      case "slot": {
+        const id = performance.now();
+        setToast({ id, text: `اسلات: ${e.text ?? ""}` });
+        window.setTimeout(() => setToast((t) => (t && t.id === id ? null : t)), 900);
+        break;
+      }
+      case "boss": {
+        const text =
+          e.text === "enraged" ? "🔥 باس خشمگین شد!" : e.text === "summon" ? "باس نیرو احضار کرد!" : "💥 باس نابود شد!";
+        setBanner({ id: performance.now() + Math.random(), text });
+        break;
+      }
+      case "shop":
+      case "deny": {
+        const id = performance.now();
+        setToast({ id, text: e.text ?? "" });
+        window.setTimeout(() => setToast((t) => (t && t.id === id ? null : t)), 1400);
         break;
       }
       case "damage":
@@ -94,7 +161,12 @@ export default function App() {
         break;
       }
       case "wave": {
-        const text = e.text === "cleared" ? `موج ${e.wave} پاک شد!` : `موج ${e.wave} شروع شد`;
+        const text =
+          e.text === "cleared"
+            ? `موج ${e.wave} پاک شد!`
+            : e.text === "boss"
+              ? `⚠ موج ${e.wave} — نبرد باس ⚠`
+              : `موج ${e.wave} شروع شد`;
         setBanner({ id: performance.now(), text });
         break;
       }
@@ -187,6 +259,20 @@ export default function App() {
     setPhase("playing");
   }, []);
 
+  // شاپ: فقط بعد از شکست باس و تا شروع موج بعد باز است. هنگام خرید بازی متوقف
+  // می‌شود تا تایمر ۱۰۰ ثانیه‌ای هم متوقف بماند (با خیال راحت خرید کن).
+  const openShop = useCallback(() => {
+    const g = gameRef.current;
+    if (!g || !g.shopOpen) return;
+    g.pause();
+    setPhase("shop");
+  }, []);
+
+  const closeShop = useCallback(() => {
+    gameRef.current?.resume();
+    setPhase("playing");
+  }, []);
+
   const restartGame = useCallback(() => {
     sound.unlock();
     gameRef.current?.restart();
@@ -213,7 +299,7 @@ export default function App() {
         style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)" }}
       />
 
-      {(playing || phase === "paused" || phase === "dead") && (
+      {(playing || phase === "paused" || phase === "dead" || phase === "shop") && (
         <Hud
           hud={hud}
           game={playing ? game : null}
@@ -223,6 +309,7 @@ export default function App() {
           banner={banner}
           toast={toast}
           onPause={pauseGame}
+          onShop={openShop}
         />
       )}
 
@@ -238,10 +325,12 @@ export default function App() {
       )}
 
       {playing && hint && (
-        <div className="pointer-events-none absolute bottom-[8.5rem] left-1/2 z-40 w-[min(92vw,30rem)] -translate-x-1/2">
+        <div className="pointer-events-none absolute bottom-[8.5rem] left-1/2 z-40 w-[min(92vw,32rem)] -translate-x-1/2">
           <div className="glass rounded-2xl px-3 py-2 text-center text-[11px] leading-relaxed text-cyan-100/90">
-            جوی‌استیک را کامل <b className="text-amber-300">رو به جلو</b> بکش تا بدوی ⚡ (عقب/کنار = راه‌رفتن) • دکمه شلیک را نگه دار و
-            انگشتت را بکش تا هم شلیک کنی هم دید بچرخد • انگشت را روی دکمه شلیک <b className="text-cyan-300">به بالا بکش تا بپری</b>
+            جوی‌استیک را کامل <b className="text-amber-300">رو به جلو</b> بکش تا بدوی ⚡ • دکمه شلیک را نگه دار و بکش تا دید هم بچرخد •
+            انگشت را روی شلیک <b className="text-cyan-300">به بالا بکش تا بپری</b> • <b className="text-sky-300">«نشانه 🎯» را نگه دار</b> تا
+            زوم و دقیق شوی • با <b className="text-orange-300">«تعویض»</b> بین دست/اسلحه/چاقو جابه‌جا شو • خشاب خودکار پر نمی‌شود؛
+            <b className="text-amber-300"> «خشاب R»</b> را بزن
           </div>
         </div>
       )}
@@ -260,6 +349,7 @@ export default function App() {
           setSettings={setSettings}
         />
       )}
+      {phase === "shop" && game && <ShopOverlay hud={hud} game={game} onClose={closeShop} />}
       {phase === "dead" && <GameOverOverlay hud={hud} best={best} onRestart={restartGame} onMenu={toMenu} />}
 
       {initError && (
