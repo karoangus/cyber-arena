@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Game } from "../game/engine";
 import type { HudState } from "../game/types";
 import type { Settings } from "../game/settings";
 import { onInstallable, promptInstall } from "../pwa";
@@ -190,12 +191,20 @@ export function StartScreen({
               <div className="text-cyan-200/60">نگه‌دار و انگشتت را بکش تا دید هم بچرخد</div>
             </div>
             <div className="rounded-lg bg-slate-900/50 p-2">
-              <b className="text-cyan-300">پرش</b>
-              <div className="text-cyan-200/60">دکمه پرش یا کشیدن انگشت به بالا روی دکمه شلیک</div>
+              <b className="text-sky-300">نشانه‌گیری 🎯</b>
+              <div className="text-cyan-200/60">دکمه «نشانه» را نگه دار (دسکتاپ: کلیک راست یا G) — زوم، دقت بالا، سرعت کمتر</div>
             </div>
             <div className="rounded-lg bg-slate-900/50 p-2">
-              <b className="text-cyan-300">نیمه راست صفحه</b>
-              <div className="text-cyan-200/60">کشیدن انگشت = چرخاندن دید</div>
+              <b className="text-orange-300">اسلات‌ها 🔁</b>
+              <div className="text-cyan-200/60">دکمه تعویض یا کلیدهای ۱/۲/۳ (چرخ ماوس هم کار می‌کند)</div>
+            </div>
+            <div className="rounded-lg bg-slate-900/50 p-2">
+              <b className="text-emerald-300">دست خالی / چاقو ✊</b>
+              <div className="text-cyan-200/60">مهمات نمی‌خواهد ولی باید به دشمن بچسبی — پرریسک!</div>
+            </div>
+            <div className="rounded-lg bg-slate-900/50 p-2">
+              <b className="text-cyan-300">پرش</b>
+              <div className="text-cyan-200/60">دکمه پرش یا کشیدن انگشت به بالا روی دکمه شلیک</div>
             </div>
             <div className="rounded-lg bg-slate-900/50 p-2">
               <b className="text-violet-300">انفجار موج</b>
@@ -206,6 +215,11 @@ export function StartScreen({
             <div className="rounded-lg bg-rose-500/10 p-2 text-rose-200">🔴 پهپاد: از دور شلیک می‌کند</div>
             <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-200">🟢 انتحاری: سریع، انفجاری</div>
             <div className="rounded-lg bg-violet-500/10 p-2 text-violet-200">🟣 سنگین: جان زیاد، رگبار</div>
+          </div>
+          <div className="mt-2 space-y-1 rounded-xl border border-amber-300/25 bg-amber-500/10 p-2 text-[10px] leading-relaxed text-amber-100/90">
+            <div>💵 هر کیل <b>۱ دلار</b> و هر باس <b>۱۰ دلار</b> — پول برای شاپ است.</div>
+            <div>👹 هر <b>۱۰ موج</b> یک نبرد باس است؛ بعد از شکست باس، <b>شاپ ۱۰۰ ثانیه</b> باز می‌شود (آپگرید آسیب، خشاب، چاقو).</div>
+            <div>🔋 خشاب دیگر خودکار پر نمی‌شود: برای موج بعد خودت <b>R</b> یا دکمه‌ی «خشاب» را بزن.</div>
           </div>
         </div>
 
@@ -231,8 +245,8 @@ export function StartScreen({
         </div>
 
         <p className="text-center text-[10px] text-cyan-200/40">
-          نکته: با هدفون بازی کن و صفحه را افقی نگه دار. در دسکتاپ: WASD برای حرکت، Shift برای دویدن، ماوس برای نگاه، R پرکردن و Q
-          انفجار موج.
+          نکته: با هدفون بازی کن و صفحه را افقی نگه دار. در دسکتاپ: WASD حرکت، Shift دویدن، ماوس نگاه، کلیک چپ شلیک،
+          <b className="text-cyan-200/70"> کلیک راست یا G نشانه‌گیری</b>، R پرکردن خشاب، Q انفجار موج، ۱/۲/۳ یا چرخ ماوس تعویض اسلات.
         </p>
       </div>
     </div>
@@ -291,6 +305,152 @@ export function PauseOverlay({
   );
 }
 
+/** تایمر mm:ss برای وقفه‌ی شاپ */
+function clock(sec: number) {
+  const s = Math.max(0, Math.ceil(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** کارت یک آیتم شاپ */
+function ShopItem({
+  icon,
+  title,
+  desc,
+  price,
+  disabled,
+  owned,
+  affordable,
+  onBuy,
+}: {
+  icon: string;
+  title: string;
+  desc: string;
+  price: number;
+  disabled?: boolean;
+  owned?: boolean;
+  affordable: boolean;
+  onBuy: () => void;
+}) {
+  const blocked = disabled || owned || !affordable;
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-2xl border p-3 text-right transition-colors ${
+        owned
+          ? "border-emerald-300/40 bg-emerald-500/10"
+          : blocked
+            ? "border-slate-500/25 bg-slate-900/40 opacity-70"
+            : "border-cyan-400/30 bg-slate-900/60"
+      }`}
+    >
+      <div className="text-2xl">{icon}</div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs font-extrabold text-cyan-50">{title}</div>
+        <div className="mt-0.5 text-[10px] leading-relaxed text-cyan-200/60">{desc}</div>
+      </div>
+      <button
+        data-ui="1"
+        onClick={onBuy}
+        disabled={blocked}
+        className={`touch-btn pointer-events-auto shrink-0 rounded-xl border px-3 py-2 text-[11px] font-extrabold ${
+          owned
+            ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+            : blocked
+              ? "cursor-not-allowed border-slate-500/25 bg-slate-800/60 text-slate-400"
+              : "border-amber-200/50 bg-gradient-to-b from-amber-400/85 to-orange-600/85 text-white"
+        }`}
+      >
+        {owned ? "خریده شد ✓" : `$${price}`}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * شاپ: فقط بعد از هر نبرد باس باز می‌شود و تا شروع موج بعد (۱۰۰ ثانیه) فعال است.
+ * هنگام باز بودن، بازی متوقف می‌شود تا تایمر هم بایستد.
+ */
+export function ShopOverlay({ hud, game, onClose }: { hud: HudState; game: Game; onClose: () => void }) {
+  const s = hud.shop;
+  const [, force] = useState(0);
+  const buy = (item: "damage" | "ammo" | "knife") => {
+    game.buy(item);
+    force((v) => v + 1);
+  };
+  const damageMaxed = s.damageLevel >= s.damageMax;
+  const ammoFull = s.reserve >= s.reserveCap;
+  return (
+    <div className="allow-scroll absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/85 px-4 backdrop-blur-md">
+      <div className="glass w-full max-w-sm rounded-3xl p-5">
+        <div className="text-center">
+          <div className="text-2xl font-extrabold text-amber-200 neon-text">🛒 شاپ میدان</div>
+          <div className="mt-1 text-[11px] text-cyan-200/70">بعد از هر باس باز می‌شود — تا شروع موج بعد فرصت داری</div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-2 text-center">
+            <div className="text-[10px] text-emerald-200/70">پول تو</div>
+            <div className="text-lg font-extrabold text-emerald-200">${hud.money}</div>
+          </div>
+          <div className="rounded-xl border border-cyan-300/30 bg-cyan-500/10 p-2 text-center">
+            <div className="text-[10px] text-cyan-200/70">شروع موج بعد</div>
+            <div className="text-lg font-extrabold text-cyan-100 tabular-nums">{clock(hud.breakTime)}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <ShopItem
+            icon="🔫"
+            title={`آپگرید آسیب اسلحه — سطح ${s.damageLevel}/${s.damageMax}`}
+            desc={
+              damageMaxed
+                ? "حداکثر قدرت را داری"
+                : `آسیب هر گلوله ۳۰٪ بیشتر می‌شود (الان ${hud.weaponDamage} → ${(hud.weaponDamage * 1.3).toFixed(1)})`
+            }
+            price={s.damageCost}
+            owned={damageMaxed}
+            affordable={hud.money >= s.damageCost}
+            onBuy={() => buy("damage")}
+          />
+          <ShopItem
+            icon="🧰"
+            title={`خشاب — ${s.ammoAmount} تیر`}
+            desc={ammoFull ? `جای مهمات نداری (حداکثر ${s.reserveCap})` : `مهمات ذخیره: ${s.reserve} → ${Math.min(s.reserveCap, s.reserve + s.ammoAmount)}`}
+            price={s.ammoCost}
+            disabled={ammoFull}
+            affordable={hud.money >= s.ammoCost}
+            onBuy={() => buy("ammo")}
+          />
+          <ShopItem
+            icon="🔪"
+            title="چاقو — اسلات سوم"
+            desc={
+              s.hasKnife
+                ? "با کلید ۳ یا دکمه تعویض اسلات بیارش بیرون"
+                : "آسیبش کمی از دست خالی بیشتر است، ولی سریع‌تر و دوربردتر می‌زند"
+            }
+            price={s.knifeCost}
+            owned={s.hasKnife}
+            affordable={hud.money >= s.knifeCost}
+            onBuy={() => buy("knife")}
+          />
+        </div>
+
+        <div className="mt-3 rounded-xl border border-rose-300/25 bg-rose-500/10 p-2 text-[10px] leading-relaxed text-rose-100/80">
+          ⚠ دست خالی و چاقو رایگان‌اند ولی باید به دشمن بچسبی — پرریسک! پول از هر کیل ۱ دلار و از باس ۱۰ دلار می‌آید.
+        </div>
+
+        <button
+          data-ui="1"
+          onClick={onClose}
+          className="touch-btn pointer-events-auto mt-4 w-full rounded-2xl border border-cyan-200/40 bg-gradient-to-b from-cyan-400/85 to-sky-700/85 py-3 font-extrabold text-white"
+        >
+          بستن و ادامه ({clock(hud.breakTime)})
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function GameOverOverlay({
   hud,
   best,
@@ -308,7 +468,7 @@ export function GameOverOverlay({
       <div className="glass w-full max-w-sm rounded-3xl p-5 text-center">
         <div className="text-3xl font-extrabold text-rose-300 pink-text">پایان نبرد</div>
         {isRecord && <div className="mt-1 text-xs font-bold text-amber-300">🏆 رکورد جدید!</div>}
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-4 grid grid-cols-4 gap-2 text-center">
           <div className="rounded-xl bg-slate-900/60 p-2">
             <div className="text-[10px] text-cyan-200/60">امتیاز</div>
             <div className="text-lg font-extrabold text-cyan-100">{hud.score.toLocaleString("en-US")}</div>
@@ -320,6 +480,10 @@ export function GameOverOverlay({
           <div className="rounded-xl bg-slate-900/60 p-2">
             <div className="text-[10px] text-cyan-200/60">کشته</div>
             <div className="text-lg font-extrabold text-cyan-100">{hud.kills}</div>
+          </div>
+          <div className="rounded-xl bg-slate-900/60 p-2">
+            <div className="text-[10px] text-emerald-200/60">پول</div>
+            <div className="text-lg font-extrabold text-emerald-200">${hud.money}</div>
           </div>
         </div>
         <div className="mt-1 text-[11px] text-cyan-200/60">

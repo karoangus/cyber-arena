@@ -60,7 +60,12 @@ function ActionButton({
         setActive(false);
         onUp?.();
       }}
-      onPointerLeave={() => setActive(false)}
+      onPointerLeave={() => {
+        setActive(false);
+        // اگر انگشت بیرون از دکمه بلند شود هم باید «رهاسازی» ثبت شود
+        // (وگرنه مثلاً نشانه‌گیری گیر می‌کرد)
+        onUp?.();
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <span className="px-1 text-[10px] font-extrabold leading-tight drop-shadow">{label}</span>
@@ -142,6 +147,7 @@ export default function TouchControls({ getGame, visible }: Props) {
   const moveId = useRef<number | null>(null);
   const lookId = useRef<number | null>(null);
   const [blast, setBlast] = useState(1);
+  const [slotName, setSlotName] = useState("اسلحه");
 
   useEffect(() => {
     const el = layerRef.current;
@@ -253,9 +259,23 @@ export default function TouchControls({ getGame, visible }: Props) {
     return () => window.clearInterval(id);
   }, [getGame]);
 
+  // نام اسلات فعال روی دکمه‌ی تعویض
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const g = getGame();
+      if (!g) return;
+      const s = g.currentSlot;
+      setSlotName(s === "fists" ? "✊ دست" : s === "knife" ? "🔪 چاقو" : "🔫 اسلحه");
+    }, 200);
+    return () => window.clearInterval(id);
+  }, [getGame]);
+
   const doJump = useCallback(() => getGame()?.jump(), [getGame]);
   const doReload = useCallback(() => getGame()?.reload(), [getGame]);
   const doBlast = useCallback(() => getGame()?.blast(), [getGame]);
+  const doSwapSlot = useCallback(() => getGame()?.cycleSlot(1), [getGame]);
+  const aimOn = useCallback(() => getGame()?.setAiming(true, "touch"), [getGame]);
+  const aimOff = useCallback(() => getGame()?.setAiming(false, "touch"), [getGame]);
 
   const safeB = "calc(1rem + env(safe-area-inset-bottom))";
   const safeR = "calc(1rem + env(safe-area-inset-right))";
@@ -286,13 +306,17 @@ export default function TouchControls({ getGame, visible }: Props) {
       </div>
 
       {/* پشته دکمه‌ها با فاصله مناسب */}
-      <div className="pointer-events-none absolute flex items-end gap-5" style={{ right: safeR, bottom: safeB }}>
-        <div className="pointer-events-none flex flex-col items-center gap-5">
+      <div className="pointer-events-none absolute flex items-end gap-4" style={{ right: safeR, bottom: safeB }}>
+        <div className="pointer-events-none flex flex-col items-center gap-4">
+          <ActionButton label="نشانه 🎯" hint="نگه دار" size={58} tone="cyan" onDown={aimOn} onUp={aimOff} />
+          <ActionButton label={slotName} hint="تعویض" size={58} tone="violet" onDown={doSwapSlot} />
+        </div>
+        <div className="pointer-events-none flex flex-col items-center gap-4">
           <ActionButton label="موج انفجاری" hint="Q" size={62} tone="violet" onDown={doBlast} cooldown={blast} />
           <ActionButton label="خشاب" hint="R" size={60} tone="amber" onDown={doReload} />
         </div>
-        <div className="pointer-events-none flex flex-col items-center gap-5">
-          <ActionButton label="پرش ⬆" size={66} tone="cyan" onDown={doJump} />
+        <div className="pointer-events-none flex flex-col items-center gap-4">
+          <ActionButton label="پرش ⬆" size={62} tone="cyan" onDown={doJump} />
           <FireButton getGame={getGame} />
         </div>
       </div>
