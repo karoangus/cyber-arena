@@ -266,7 +266,8 @@ function SlotPicker({ hud, game }: { hud: HudState; game: Game | null }) {
 
 export default function Hud({ hud, game, hitId, dmgId, floats, banner, toast, onPause, onShop }: Props) {
   const hpPct = Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100));
-  const locked = hud.enemiesLeft > 0 && game ? game.info.locked : false;
+  // getter سبک: ساختن کل game.info (با آرایه‌ی دشمن‌ها و...) فقط برای این بولین نبیند
+  const locked = hud.enemiesLeft > 0 && game ? game.onTarget : false;
   const melee = hud.slot !== "gun";
 
   return (

@@ -254,7 +254,10 @@ export default function TouchControls({ getGame, visible }: Props) {
   useEffect(() => {
     const id = window.setInterval(() => {
       const g = getGame();
-      if (g) setBlast(Math.min(1, 1 - g.blastCdRatio));
+      if (!g) return;
+      const next = Math.min(1, 1 - g.blastCdRatio);
+      // کوانتیزه تا هر ۲۵۰ms بدون تغییر واقعی ری‌رندر نشویم (روانی موبایل)
+      setBlast((prev) => (Math.abs(next - prev) >= 0.02 ? next : prev));
     }, 250);
     return () => window.clearInterval(id);
   }, [getGame]);
