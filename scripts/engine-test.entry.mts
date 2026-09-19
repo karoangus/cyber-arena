@@ -315,15 +315,25 @@ check("engine: mouseup شلیک را قطع کرد", g2check.firing === false);
   check("engine: aspect دوربین به‌روز شد", Math.abs(cam.aspect - 1280 / 720) < 1e-6);
 }
 
-// pause/resume
-mustNotThrow("engine: pause/resume", () => {
+// pause/resume (با رندرر تقلبی که renderCalls را می‌شمارد)
+{
+  const renderer = (game as unknown as { renderer: { renderCalls: number } }).renderer;
+  mustNotThrow("engine: pause/resume", () => {
+    game.pause();
+    const el = (game as unknown as { elapsed: number }).elapsed;
+    pump(10);
+    if ((game as unknown as { elapsed: number }).elapsed !== el) throw new Error("در توقف آپدیت شد");
+    game.resume();
+  });
+  check("engine: بعد از resume اجرا ادامه دارد", g.paused === false);
+  const rc0 = renderer.renderCalls;
   game.pause();
-  const el = (game as unknown as { elapsed: number }).elapsed;
   pump(10);
-  if ((game as unknown as { elapsed: number }).elapsed !== el) throw new Error("در توقف آپدیت شد");
+  check("engine: در توقف موقت رندر نمی‌شود (صرفه‌جویی GPU)", renderer.renderCalls === rc0, `+${renderer.renderCalls - rc0}`);
   game.resume();
-});
-check("engine: بعد از resume اجرا ادامه دارد", g.paused === false);
+  pump(10);
+  check("engine: بعد از resume رندر ادامه پیدا می‌کند", renderer.renderCalls > rc0);
+}
 
 // مرگ بازیکن
 {
@@ -481,6 +491,15 @@ const ge = gameE as unknown as GameE & {
   lastT: number;
   tick: (t: number) => void;
   autoFire: boolean;
+  emptyCd: number;
+  banner: string;
+  bannerT: number;
+  shake: number;
+  shakeT: number;
+  invuln: number;
+  sprintAmount: number;
+  recoilPitch: number;
+  perfRatio: number;
 };
 gameE.autoFire = false; // تست‌های قطعی: شلیک خودکار خاموش
 gameE.start();
@@ -678,6 +697,64 @@ resetPlayer();
     `money=${ge.money} lvl=${ge.weaponLevel} knife=${ge.hasKnife} slot=${ge.slot}`
   );
   check("restart: شاپ و باس پاک شد", ge.shopAvailable === false && ge.bossRef === null);
+}
+
+/* ------------ خشاب خالی: نگه‌داشتن شلیک نباید هر فریم ریپ کند (رگرشن) ------------ */
+resetPlayer();
+{
+  ge.setSlot("gun");
+  ge.timeScale = 1;
+  ge.ammo = 0;
+  ge.reserve = 0;
+  ge.reloading = false;
+  ge.reloadT = 0;
+  ge.emptyCd = 0;
+  ge.autoFire = false;
+  const before = eventsE.filter((x) => x.type === "noammo").length;
+  ge.setFiring(true);
+  pumpE(60); // ~۱ ثانیه نگه‌داشتن شلیک بدون هیچ مهماتی
+  ge.setFiring(false);
+  const n = eventsE.filter((x) => x.type === "noammo").length - before;
+  check("خشاب‌خالی: رویداد noammo ریپ نمی‌شود (قبلاً ۶۰ در ثانیه)", n >= 1 && n <= 3, `events=${n}`);
+}
+
+/* ------------------------- هیت‌استاپ کیل (جوز جدید) ------------------------- */
+resetPlayer();
+{
+  ge.timeScale = 1;
+  ge.wave = 1;
+  ge.spawnEnemy("drone", ge.pos.clone().add(new THREE.Vector3(3, 0, -5)));
+  const e = ge.enemies[ge.enemies.length - 1];
+  ge.hurtEnemy(e, 99999, null);
+  check("هیت‌استاپ: کیل دشمن معمولی اسلوموشن کوتاه می‌دهد", ge.timeScale < 1, `ts=${ge.timeScale}`);
+  pumpE(80);
+  check("هیت‌استاپ: به سرعت عادی برمی‌گردد", ge.timeScale >= 0.995, `ts=${ge.timeScale}`);
+}
+
+/* ---------------- restart: پاک‌شدن وضعیت‌های گذرای دوربین ---------------- */
+{
+  ge.shake = 0.9;
+  ge.shakeT = 0.3;
+  ge.banner = "بنرِ آزمایشی";
+  ge.bannerT = 2;
+  ge.invuln = 0.3;
+  ge.sprintAmount = 1;
+  ge.recoilPitch = 0.02;
+  ge.emptyCd = 0.4;
+  gameE.restart();
+  check(
+    "restart: لرزش/محصنی/دویدن/لگد/خشاب‌خالی صفر شد",
+    ge.shake === 0 && ge.shakeT === 0 && ge.invuln === 0 && ge.sprintAmount === 0 && ge.recoilPitch === 0 && ge.emptyCd === 0,
+    `shake=${ge.shake} invuln=${ge.invuln} sprint=${ge.sprintAmount}`
+  );
+  // بنرِ کهنه‌ی بازی قبل باید جای خود را به بنرِ موج جدید بدهد
+  check("restart: بنرِ کهنه با بنرِ موج جدید جایگزین شد", ge.banner === "موج 1" && ge.bannerT > 0, `b=${ge.banner}`);
+}
+
+/* -------------------- کیفیت خودکار: یکپارچگی با حلقه‌ی بازی -------------------- */
+{
+  // فریم‌های پمپ ۱۶.۷ms (۶۰fps) هستند → کیفیت نباید دست‌خورد
+  check("کیفیت: در ۶۰fps نسبت کیفیت می‌ماند", ge.perfRatio === 1, `ratio=${ge.perfRatio}`);
 }
 
 mustNotThrow("سناریوی جدید: dispose بدون خطا", () => gameE.dispose());

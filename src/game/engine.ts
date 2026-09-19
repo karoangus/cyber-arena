@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { sound } from "./audio";
 import { ParticleSystem, TracerPool } from "./effects";
+import { PerfScaler } from "./perf";
 import { saveBest } from "./settings";
 import type { GameOptions, HudState, SlotKind } from "./types";
 import { ViewModel } from "./viewmodel";
-import { ARENA, buildWorld, resolveCircle, segmentBlocked, type Box, type WorldRefs } from "./world";
+import { ARENA, buildWorld, glowTexture, resolveCircle, segmentBlocked, type Box, type WorldRefs } from "./world";
 
 type Kind = "drone" | "rusher" | "heavy" | "boss";
 
@@ -69,6 +70,13 @@ interface Pickup {
   pos: THREE.Vector3;
 }
 
+/** ارتفاع مرکز بدن بازیکن (برای برخورد/نشان‌گیری) */
+const Y_CENTER = new THREE.Vector3(0, 1.35, 0);
+/** آفست نقطه‌ی آسیب از انفجار موج */
+const BLAST_Y = new THREE.Vector3(0, 1, 0);
+/** رنگ رد ذرات گلوله‌ی دشمن (یک‌بار ساخته می‌شود، نه هر فریم) */
+const ORB_TRAIL_COLOR = new THREE.Color(0xff9db1);
+
 /* ------------------------------ تنظیمات بازی ------------------------------ */
 /** هر چند موج یک نبرد باس داریم */
 export const BOSS_EVERY = 10;
@@ -132,6 +140,20 @@ export class Game {
   private particles: ParticleSystem;
   private tracers: TracerPool;
 
+  /**
+   * بردارهای کاری (scratch) برای حلقه‌های داغ:
+   * هر شلیک/هر فریم ده‌ها Vector3 موقت create می‌شد که فشار GC می‌زد و روی
+   * دستگاه‌های ضعیف میکرو-لگ ایجاد می‌کرد. حالا همه‌جا همین چند بردار
+   * مشترک استفاده می‌شود (کال‌ها ترتیبی‌اند، پس تداخلی ندارند).
+   */
+  private readonly _t1 = new THREE.Vector3();
+  private readonly _t2 = new THREE.Vector3();
+  private readonly _t3 = new THREE.Vector3();
+  private readonly _t4 = new THREE.Vector3();
+  private readonly _t5 = new THREE.Vector3();
+  /** زاویه‌ی چرخش دوربین در منوی اصلی (پس‌زمینه‌ی زنده) */
+  private menuAngle = 0;
+
   /** مدل اول‌شخص: بازوها/دست‌ها/اسلحه/چاقو/مشت + همه‌ی انیمیشن‌ها */
   private vm: ViewModel;
   private muzzleLight: THREE.PointLight;
@@ -165,6 +187,8 @@ export class Game {
   private magSize = MAG_SIZE;
   private reserve = 240;
   private fireCd = 0;
+  /** کول‌داون صدای/پیام خشاب خالی: نگه‌داشتن شلیک با مهمات صفر نباید هر فریم ریپ کند */
+  private emptyCd = 0;
   private reloading = false;
   private reloadT = 0;
   private recoilPitch = 0;
@@ -228,6 +252,11 @@ export class Game {
   /** حلقه‌ی ضربه‌ی باس روی زمین */
   private shockRings: THREE.Mesh[] = [];
 
+  /** مقیاس‌دهنده‌ی کیفیت خودکار (رزولوشن داینامیک برای روانی روی گوشی‌های ضعیف) */
+  readonly perf = new PerfScaler();
+  /** رزولوشن پایه‌ی دستگاه (pixel ratio قبل از کاهش خودکار کیفیت) */
+  private basePixelRatio = 1;
+
   running = false;
   paused = false;
   private raf = 0;
@@ -249,7 +278,8 @@ export class Game {
       powerPreference: "high-performance",
       stencil: false,
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.6 : 2));
+    this.basePixelRatio = Math.min(window.devicePixelRatio || 1, mobile ? 1.6 : 2);
+    this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setClearColor(0x05060f, 1);
 
     this.scene = new THREE.Scene();
@@ -305,9 +335,13 @@ export class Game {
     this.resize();
     this.attachListeners(canvas);
 
-    // پیش‌نمایش صحنه پشت منوی اصلی
-    this.updateCamera(0);
+    // پیش‌نمایش زنده‌ی صحنه پشت منوی اصلی: حلقه‌ی سبک menuUpdate (دوربین
+    // آرام دور میدان می‌چرخد و دنیای نئونی زنده می‌ماند — بدون بازیکن/مدل اول‌شخص)
+    this.vm.root.visible = false;
+    this.lastT = performance.now();
+    this.menuUpdate(0);
     this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.tick);
   }
 
   // ---------- گوش‌دادن به رویدادها ----------
@@ -437,11 +471,12 @@ export class Game {
     this.running = true;
     this.paused = false;
     this.lastT = performance.now();
+    this.vm.root.visible = true;
     sound.unlock();
     sound.startAmbient();
     this.nextWave();
     this.emitState(true);
-    this.raf = requestAnimationFrame(this.tick);
+    // حلقه‌ی RAF از کنستراکتور فعال است (حالت منو)؛ اینجا فقط وضعیت عوض می‌شود
   }
 
   pause() {
@@ -510,10 +545,35 @@ export class Game {
     this.aimInput.mouse = this.aimInput.key = this.aimInput.touch = false;
     this.meleeCd = 0;
     this.meleeT = 0;
+    this.meleeHand = 0;
+    this.meleeHitDone = true;
     this.bossRef = null;
     this.shopAvailable = false;
     this.timeScale = 1;
     this.firing = false;
+    this.currentLock = false;
+    this.invuln = 0;
+    this.lastDamage = -99;
+    // بحران‌های دوربین/انیمیشن که قبلاً بعد از restart باقی می‌ماندند
+    this.recoilPitch = 0;
+    this.meleePitch = 0;
+    this.gunSway.set(0, 0);
+    this.bob = 0;
+    this.bobJitter = 0;
+    this.sprintAmount = 0;
+    this.lean = 0;
+    this.stepPhase = 0;
+    this.stepDip = 0;
+    this.landDip = 0;
+    this.wasAirborne = false;
+    this.onGround = true;
+    this.fireCd = 0;
+    this.emptyCd = 0;
+    this.shake = 0;
+    this.shakeT = 0;
+    this.banner = "";
+    this.bannerT = 0;
+    this.vm.root.visible = true;
     this.running = true;
     this.paused = false;
     this.lastT = performance.now();
@@ -538,6 +598,19 @@ export class Game {
     this.canvas?.removeEventListener("wheel", this.onWheel);
     this.vm.dispose();
     this.particles.dispose();
+    // همه‌ی جئامتری/متریال/بافت‌های دنیای ساخت‌شده‌ی پروسیجرال (کف، دیوارها،
+    // آسمان، ستاره‌ها، برج‌ها، حلقه‌ها) هم آزاد شوند تا بین‌بار retry چیزی نشت نکند.
+    // glowTexture بافتِ مشترکِ ماژول است (ذرات + فلش دهانه) و نباید dispose شود.
+    this.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const m of mats as THREE.Material[]) {
+        const mm = m as unknown as { map?: THREE.Texture };
+        if (mm.map && mm.map !== glowTexture) mm.map.dispose();
+        m.dispose();
+      }
+    });
     sound.stopAmbient();
     this.renderer.dispose();
   }
@@ -545,12 +618,47 @@ export class Game {
   private tick = (t: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
-    const raw = Math.min((t - this.lastT) / 1000, 1 / 30);
+    const rawMs = t - this.lastT;
     this.lastT = t;
-    // اسلوموشن کوتاه هنگام انفجار باس (سینمایی)
-    if (!this.paused) this.update(raw * this.timeScale);
-    this.renderer.render(this.scene, this.camera);
+    const raw = Math.min(rawMs / 1000, 1 / 30);
+
+    // کیفیت خودکار: فقط حین بازی واقعی نمونه‌برداری می‌شود (منو و توقف = مصرف صفر)
+    if (this.running && !this.paused) {
+      this.perf.sample(rawMs, t);
+      if (this.perf.update(t)) this.applyQuality();
+    }
+
+    if (this.running && !this.paused) {
+      // اسلوموشن کوتاه هنگام انفجار باس (سینمایی)
+      this.update(raw * this.timeScale);
+    } else if (!this.running) {
+      this.menuUpdate(raw);
+    }
+    // در توقف فریم آخر روی کانواس می‌ماند؛ رندر کردن صحنه‌ی ثابت فقط GPU می‌سوزاند
+    if (!this.paused) this.renderer.render(this.scene, this.camera);
   };
+
+  /** چرخه‌ی سبک پس‌زمینه‌ی منوی اصلی: دوربین آرام دور میدان می‌چرخد */
+  private menuUpdate(dt: number) {
+    this.elapsed += dt;
+    for (const fn of this.world.animated) fn(this.elapsed, dt);
+    this.menuAngle += dt * 0.06;
+    const r = 30;
+    this.camera.position.set(
+      Math.sin(this.menuAngle) * r,
+      10.5 + Math.sin(this.elapsed * 0.13) * 1.2,
+      Math.cos(this.menuAngle) * r,
+    );
+    this.camera.lookAt(0, 2.2, 0);
+    this.particles.update(dt);
+    this.tracers.update(dt);
+  }
+
+  /** اعمال نسبت کیفیت جدید روی رندرر (رزولوشن داینامیک) */
+  private applyQuality() {
+    this.renderer.setPixelRatio(this.basePixelRatio * this.perf.ratio);
+    this.resize(); // با رزولوشن جدید بافر رندر می‌سازد + مقیاس ذرات همگام می‌شود
+  }
 
   // ---------- ورودی‌ها ----------
   setMove(x: number, y: number) {
@@ -682,7 +790,7 @@ export class Game {
     sound.blast();
     this.vibrate(60);
     this.shakeScreen(0.6);
-    const p = this.playerCenter();
+    const p = this.playerCenter(this._t1);
     this.particles.burst(p, 60, new THREE.Color(0x67e8f9), { speed: 16, gravity: 3, life: 0.8, size: 0.75 });
     this.particles.burst(p, 26, new THREE.Color(0xffffff), { speed: 9, gravity: 2, life: 0.6, size: 0.5 });
     // حلقه موج انفجار
@@ -695,8 +803,8 @@ export class Game {
       const d = e.pos.distanceTo(p);
       if (d < 11) {
         const k = 1 - d / 11;
-        this.hurtEnemy(e, 55 * (0.55 + k * 0.6), e.pos.clone().add(new THREE.Vector3(0, 1, 0)));
-        e.vel.add(e.pos.clone().sub(p).setY(1.5).normalize().multiplyScalar(14 * (0.4 + k)));
+        this.hurtEnemy(e, 55 * (0.55 + k * 0.6), this._t2.copy(e.pos).add(BLAST_Y));
+        e.vel.add(this._t3.copy(e.pos).sub(p).setY(1.5).normalize().multiplyScalar(14 * (0.4 + k)));
       }
     }
     this.opts.onEvent({ type: "blast" });
@@ -816,8 +924,8 @@ export class Game {
     if (this.aimAmount < 0.002) this.aimAmount = 0;
   }
 
-  private playerCenter() {
-    return this.pos.clone().add(new THREE.Vector3(0, 1.35, 0));
+  private playerCenter(out: THREE.Vector3) {
+    return out.copy(this.pos).add(Y_CENTER);
   }
 
   private updatePlayer(dt: number) {
@@ -837,11 +945,9 @@ export class Game {
     const throttle = Math.min(1, mag * 1.5);
     const desired = THREE.MathUtils.lerp(7.8, 11.6, this.sprintAmount) * throttle * (1 - this.aimAmount * 0.45);
 
-    const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const wish = new THREE.Vector3()
-      .addScaledVector(forward, this.input.y)
-      .addScaledVector(right, this.input.x);
+    const forward = this._t1.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const right = this._t2.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const wish = this._t3.copy(forward).multiplyScalar(this.input.y).addScaledVector(right, this.input.x);
     if (wish.lengthSq() > 1e-6) wish.normalize();
     const target = wish.multiplyScalar(desired);
     const k = 1 - Math.exp(-(this.onGround ? 16 : 4.5) * dt);
@@ -987,6 +1093,7 @@ export class Game {
     this.gunSway.y += (swayY - this.gunSway.y) * swayK;
 
     if (this.fireCd > 0) this.fireCd -= dt;
+    if (this.emptyCd > 0) this.emptyCd -= dt;
     if (this.reloading) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
@@ -1030,7 +1137,10 @@ export class Game {
     const shouldFire = this.firing || (this.autoFire && this.currentLock);
     if (shouldFire && !this.reloading && this.fireCd <= 0) {
       if (this.ammo > 0) this.shoot();
-      else {
+      else if (this.emptyCd <= 0) {
+        // بدون کول‌داون، نگه‌داشتن شلیک با مهمات صفر هر فریم (۶۰/ث) صدای
+        // خشاب‌خالی و توست «خشاب خالی» ریپ می‌کرد
+        this.emptyCd = 0.4;
         sound.empty();
         this.opts.onEvent({ type: "noammo" });
         this.reload();
@@ -1054,15 +1164,15 @@ export class Game {
   /** فرود ضربه‌ی نزدیک: هر دشمن (یا گلوله‌ی دشمن) داخل برد و روبه‌رو */
   private meleeStrike() {
     const cfg = this.slot === "knife" ? MELEE.knife : MELEE.fists;
-    const chest = this.playerCenter();
-    const dir = new THREE.Vector3();
+    const chest = this.playerCenter(this._t1);
+    const dir = this._t2;
     this.camera.getWorldDirection(dir);
-    const reach = cfg.range + (this.slot === "knife" ? 0 : 0);
+    const reach = cfg.range;
 
     // گرداندن گلوله‌های دشمن با ضربه‌ی نزدیک (ریسکِ نزدیک شدن را کمی کم می‌کند)
     for (const o of this.orbs) {
       if (!o.active) continue;
-      const rel = o.mesh.position.clone().sub(chest);
+      const rel = this._t3.copy(o.mesh.position).sub(chest);
       if (rel.length() < reach && rel.normalize().dot(dir) > 0.45) {
         o.active = false;
         o.mesh.visible = false;
@@ -1076,8 +1186,9 @@ export class Game {
     let bestD = Infinity;
     for (const e of this.enemies) {
       if (!e.alive || e.spawnT > 0) continue;
-      const c = e.pos.clone().add(new THREE.Vector3(0, e.kind === "rusher" ? 0.45 : 0.2, 0));
-      const rel = c.clone().sub(chest);
+      const c = this._t4.copy(e.pos);
+      c.y += e.kind === "rusher" ? 0.45 : 0.2;
+      const rel = this._t5.copy(c).sub(chest);
       const d = rel.length();
       if (d > reach + e.radius * 0.8) continue;
       if (rel.normalize().dot(dir) < 0.42) continue;
@@ -1088,7 +1199,7 @@ export class Game {
     }
 
     // افکت هُل دادن هوا حتی اگر به چیزی نخورد
-    const fxPoint = chest.clone().addScaledVector(dir, Math.min(bestD, reach));
+    const fxPoint = this._t3.copy(chest).addScaledVector(dir, Math.min(bestD, reach));
     this.meleePitch += 0.006;
     this.shakeScreen(0.09);
     if (!best) {
@@ -1097,22 +1208,24 @@ export class Game {
         gravity: 2,
         life: 0.24,
         size: 0.24,
-        dir: dir.clone(),
+        dir: dir,
       });
       return;
     }
 
-    const hitPoint = best.pos.clone().add(new THREE.Vector3(0, 0.5, 0));
+    const hitPoint = this._t4.copy(best.pos);
+    hitPoint.y += 0.5;
     this.hurtEnemy(best, cfg.dmg, hitPoint);
     // ضربه‌ی نزدیک دشمن را محکم‌تر پرت می‌کند
-    const kb = best.pos.clone().sub(this.pos).setY(0);
+    const kb = this._t5.copy(best.pos).sub(this.pos);
+    kb.y = 0;
     if (kb.lengthSq() > 1e-5) best.vel.addScaledVector(kb.normalize(), best.kind === "boss" ? 0.6 : 4.5);
     this.particles.burst(hitPoint, 12, new THREE.Color(this.slot === "knife" ? 0xb7fbff : 0xffd166), {
       speed: 7,
       gravity: 7,
       life: 0.4,
       size: 0.36,
-      dir: dir.clone(),
+      dir,
     });
     sound.meleeHit();
     this.vibrate(26);
@@ -1145,11 +1258,14 @@ export class Game {
     return tmin;
   }
 
-  /** محاسبه برخورد تیر: نزدیک‌ترین دشمن روی خط دید و فاصله تا دیوار */
+  /**
+   * محاسبه برخورد تیر: نزدیک‌ترین دشمن روی خط دید و فاصله تا دیوار
+   * (تمام بردارها scratch هستند؛ origin/dir تا اولین castShot بعدی معتبر می‌مانند)
+   */
   private castShot(exact = false) {
-    const origin = new THREE.Vector3();
+    const origin = this._t1;
     this.camera.getWorldPosition(origin);
-    const dir = new THREE.Vector3();
+    const dir = this._t2;
     this.camera.getWorldDirection(dir);
     if (!exact) {
       // نشانه‌گیری پراکندگی را تقریباً صفر می‌کند؛ حرکت و لگد آن را بیشتر
@@ -1163,11 +1279,12 @@ export class Game {
     let bestT = Infinity;
     for (const e of this.enemies) {
       if (!e.alive || e.spawnT > 0) continue;
-      const c = e.pos.clone().add(new THREE.Vector3(0, e.kind === "rusher" ? 0.45 : 0.15, 0));
-      const rel = c.clone().sub(origin);
+      const c = this._t3.copy(e.pos);
+      c.y += e.kind === "rusher" ? 0.45 : 0.15;
+      const rel = this._t4.copy(c).sub(origin);
       const t = rel.dot(dir);
       if (t < 0.5 || t > 70) continue;
-      const perp = rel.clone().addScaledVector(dir, -t).length();
+      const perp = this._t5.copy(rel).addScaledVector(dir, -t).length();
       const assist = this.assist * (1 + this.aimAmount * 0.18);
       const hitR = e.kind === "rusher" ? e.radius * Math.min(assist, 1.9) : e.radius * assist;
       if (perp < hitR && t < bestT) {
@@ -1198,18 +1315,18 @@ export class Game {
     this.shakeScreen(0.06);
 
     const { enemy, enemyT, wallT, origin, dir } = this.castShot();
-    const muzzlePos = new THREE.Vector3();
+    const muzzlePos = this._t3;
     this.vm.muzzle.getWorldPosition(muzzlePos);
 
     if (enemy) {
-      const hitPoint = origin.clone().addScaledVector(dir, enemyT);
+      const hitPoint = this._t4.copy(origin).addScaledVector(dir, enemyT);
       this.tracers.add(muzzlePos, hitPoint);
       this.hurtEnemy(enemy, this.weaponDamage(), hitPoint);
       this.particles.burst(hitPoint, 7, new THREE.Color(0xffd166), { speed: 6, gravity: 6, life: 0.35, size: 0.3 });
       this.opts.onEvent({ type: "hit" });
       this.score += 10;
     } else {
-      const end = origin.clone().addScaledVector(dir, Math.min(wallT, 80));
+      const end = this._t4.copy(origin).addScaledVector(dir, Math.min(wallT, 80));
       this.tracers.add(muzzlePos, end);
       if (wallT < 80) {
         this.particles.burst(end, 5, new THREE.Color(0x9ad8ff), { speed: 4, gravity: 7, life: 0.3, size: 0.26 });
@@ -1223,7 +1340,8 @@ export class Game {
     e.hitFlash = 1;
     if (hitPoint) {
       // پس‌زنی باید دشمن را از بازیکن دور کند (قبلاً به‌سمت بازیکن کشیده می‌شد)
-      const kb = e.pos.clone().sub(this.pos).setY(0);
+      const kb = this._t5.copy(e.pos).sub(this.pos);
+      kb.y = 0;
       if (kb.lengthSq() > 1e-5) e.vel.addScaledVector(kb.normalize(), 1.2);
     }
     if (e.hp <= 0) this.killEnemy(e);
@@ -1235,6 +1353,9 @@ export class Game {
     this.kills++;
     this.combo++;
     this.comboTimer = 4;
+    // هیت‌استاپ خیلی کوتاه: لحظه‌ی کیل یک‌کم آهسته می‌شود تا ضربه «بهدل» بنشیند
+    // (باس خودش اسلوموشن قوی‌تر دارد و min() اجازه‌ی کوتاه‌ترشدن نمی‌دهد)
+    if (e.kind !== "boss") this.timeScale = Math.min(this.timeScale, 0.78);
     const mult = Math.min(3, 1 + (this.combo - 1) * 0.15);
     const gain = Math.round(e.scoreValue * mult);
     this.score += gain;
@@ -1423,7 +1544,9 @@ export class Game {
   }
 
   private updateEnemies(dt: number) {
-    const playerChest = this.pos.clone().add(new THREE.Vector3(0, 1.3, 0));
+    // همه‌ی بردارهای این حلقه scratch هستند (چند بردار موقت × دشمن × فریم = فشار GC)
+    const playerChest = this._t1.copy(this.pos);
+    playerChest.y += 1.3;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.alive) continue;
@@ -1437,10 +1560,11 @@ export class Game {
           continue;
         }
       }
-      const toPlayer = playerChest.clone().sub(e.pos);
+      const toPlayer = this._t2.copy(playerChest).sub(e.pos);
       const dist = Math.max(0.001, toPlayer.length());
-      const dirTo = toPlayer.clone().divideScalar(dist);
-      const desired = new THREE.Vector3();
+      const dirTo = this._t3.copy(toPlayer).divideScalar(dist);
+      const desired = this._t4;
+      desired.set(0, 0, 0);
       let speedMul = 1;
 
       if (e.kind === "drone") {
@@ -1454,7 +1578,7 @@ export class Game {
         }
       } else if (e.kind === "heavy") {
         desired.copy(dirTo).multiplyScalar(dist > 9 ? 1 : -0.15);
-        desired.addScaledVector(new THREE.Vector3(-dirTo.z, 0, dirTo.x), e.orbit * 0.5);
+        desired.addScaledVector(this._t5.set(-dirTo.z, 0, dirTo.x), e.orbit * 0.5);
         e.shootCd -= dt;
         if (e.shootCd <= 0 && dist < 32 && !segmentBlocked(playerChest, e.pos, this.world.obstacles, 7)) {
           e.burst = 3;
@@ -1492,7 +1616,7 @@ export class Game {
         const d = e.pos.distanceTo(o.pos);
         const minD = e.radius + o.radius + 0.5;
         if (d < minD && d > 0.001) {
-          desired.addScaledVector(e.pos.clone().sub(o.pos).normalize(), (1 - d / minD) * 1.6);
+          desired.addScaledVector(this._t5.copy(e.pos).sub(o.pos).normalize(), (1 - d / minD) * 1.6);
         }
       }
 
@@ -1682,7 +1806,7 @@ export class Game {
   }
 
   private updateOrbs(dt: number) {
-    const chest = this.pos.clone().add(new THREE.Vector3(0, 1.35, 0));
+    const chest = this.playerCenter(this._t1);
     for (const o of this.orbs) {
       if (!o.active) continue;
       o.life -= dt;
@@ -1690,8 +1814,14 @@ export class Game {
       o.mesh.position.addScaledVector(o.vel, dt);
       o.mesh.rotation.x += dt * 6;
       const p = o.mesh.position;
-      if (Math.random() < 0.4) {
-        this.particles.burst(p, 1, new THREE.Color(0xff9db1), { speed: 0.6, gravity: 0, life: 0.22, size: 0.28, dir: o.vel.clone().normalize().negate() });
+      if (Math.random() < 0.25) {
+        this.particles.burst(p, 1, ORB_TRAIL_COLOR, {
+          speed: 0.6,
+          gravity: 0,
+          life: 0.22,
+          size: 0.28,
+          dir: this._t2.copy(o.vel).normalize().negate(),
+        });
       }
       let hit = false;
       if (p.y < 0.12) hit = true;
@@ -1766,7 +1896,7 @@ export class Game {
       const d = this.pos.distanceTo(p.mesh.position);
       if (d < 3.5 && this.alive) {
         // جذب مغناطیسی
-        const dir = this.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(p.mesh.position).normalize();
+        const dir = this._t2.copy(this.pos).add(BLAST_Y).sub(p.mesh.position).normalize();
         p.mesh.position.addScaledVector(dir, dt * (2.5 + (3.5 - d) * 2.4));
       }
       p.mesh.visible = p.life > 5 || Math.sin(p.life * 12) > -0.2;
@@ -1897,6 +2027,16 @@ export class Game {
       locked: this.currentLock,
       arena: ARENA,
     };
+  }
+
+  /** آیا قفل اتوشلیک این لحظه روی دشمن نشسته است؟ (حالت سبک برای HUD) */
+  get onTarget() {
+    return this.currentLock;
+  }
+
+  /** نسبت کیفیت فعلی (۱ = کامل، کمتر = رزولوشن پایین‌تر برای روانی) */
+  get perfRatio() {
+    return this.perf.ratio;
   }
 
   private snapshot(): HudState {

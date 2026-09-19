@@ -15,6 +15,10 @@ export class ParticleSystem {
   private grav: Float32Array;
   private cursor = 0;
   private material: THREE.ShaderMaterial;
+  /** بردارهای کاری مشترک: burst هر فریم صدها ذره می‌سازد و نباید هر ذره یک
+   *  Vector3 جدا allocate کند (فشار GC = لگ در لحظه‌ی انفجار) */
+  private readonly _v = new THREE.Vector3();
+  private readonly _dir = new THREE.Vector3();
 
   constructor(count = 520) {
     this.count = count;
@@ -89,10 +93,10 @@ export class ParticleSystem {
       this.pos[j] = origin.x;
       this.pos[j + 1] = origin.y;
       this.pos[j + 2] = origin.z;
-      const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+      const v = this._v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
       if (v.lengthSq() < 1e-4) v.set(0, 1, 0);
       v.normalize().multiplyScalar(speed * (0.45 + Math.random() * 0.85));
-      if (dir) v.lerp(dir.clone().multiplyScalar(speed), 0.55);
+      if (dir) v.lerp(this._dir.copy(dir).multiplyScalar(speed), 0.55);
       this.vel[j] = v.x;
       this.vel[j + 1] = v.y;
       this.vel[j + 2] = v.z;

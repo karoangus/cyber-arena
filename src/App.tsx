@@ -9,6 +9,22 @@ import type { GameEvent, HudState } from "./game/types";
 
 type Phase = "menu" | "playing" | "paused" | "dead" | "shop";
 
+/** فقط روی دستگاه‌های لمسی (pointer: coarse) کنترل‌های لمسی فعال باشند؛
+ *  روی دسکتاپ لایه‌ی لمسی نباید رویدادهای ماوس را از کانواس بگیرد */
+function useTouchControlsEnabled(): boolean {
+  const [on, setOn] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.("(pointer: coarse)");
+    if (!mq) return;
+    const fn = () => setOn(mq.matches);
+    mq.addEventListener?.("change", fn);
+    return () => mq.removeEventListener?.("change", fn);
+  }, []);
+  return on;
+}
+
 const emptyHud: HudState = {
   hp: 100,
   maxHp: 100,
@@ -53,6 +69,7 @@ const emptyHud: HudState = {
 
 export default function App() {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const touchControlsOn = useTouchControlsEnabled();
   const gameRef = useRef<Game | null>(null);
   const [game, setGame] = useState<Game | null>(null);
   const [phase, setPhase] = useState<Phase>("menu");
@@ -313,9 +330,7 @@ export default function App() {
         />
       )}
 
-      {playing && (
-        <TouchControls getGame={getGame} visible />
-      )}
+      {playing && <TouchControls getGame={getGame} visible={touchControlsOn} />}
 
       {/* دکمه تمام‌صفحه (در منو داخل خود منو هست) */}
       {phase !== "menu" && (

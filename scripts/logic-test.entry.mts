@@ -111,5 +111,45 @@ check("settings: ذخیره/بازیابی صدا", back.sound === false);
 store.set("cyber_best", "1250");
 check("settings: رکورد خوانده می‌شود", bestScore() === 1250, `got=${bestScore()}`);
 
+/* --------------------------- کیفیت خودکار (PerfScaler) --------------------------- */
+const { PerfScaler } = await import("../src/game/perf");
+{
+  const s = new PerfScaler();
+  let now = 0;
+  const feed = (ms: number, frames: number) => {
+    for (let i = 0; i < frames; i++) {
+      now += ms;
+      s.sample(ms, now);
+      s.update(now);
+    }
+  };
+
+  feed(16.7, 60); // ~۱ ثانیه: هنوز در دوره‌ی گرم‌شدن است
+  check("کیفیت: در ۶۰ فریم/ث ثانیه‌ی اول کیفیت کامل می‌ماند", s.ratio === 1, `ratio=${s.ratio}`);
+
+  feed(33, 100); // ۳۰ فریم/ث = دستگاه ضعیف → باید کیفیت را کم کند
+  check("کیفیت: افت فریم → کاهش نسبت کیفیت", s.ratio < 0.99, `ratio=${s.ratio}`);
+  const afterSlow = s.ratio;
+
+  feed(8, 600); // دستگاه جا دارد → کیفیت پله‌پله تا سقف برمی‌گردد
+  check("کیفیت: با فریم سریع، کیفیت تا سقف برمی‌گردد", s.ratio === s.maxRatio, `${afterSlow} -> ${s.ratio}`);
+
+  feed(33, 600); // ضعف طولانی → باید به کف برسد و پایین‌تر نرود
+  check("کیفیت: به کف minRatio محدود می‌شود", s.ratio === s.minRatio, `ratio=${s.ratio}`);
+
+  s.reset();
+  check("کیفیت: reset کیفیت کامل برمی‌گرداند", s.ratio === 1);
+
+  // فریم‌های بسیار طولانی (تب پس‌زمینه/کاشی) نباید کیفیت را کم کنند
+  const s2 = new PerfScaler();
+  let now2 = 0;
+  for (let i = 0; i < 300; i++) {
+    now2 += 400;
+    s2.sample(400, now2);
+    s2.update(now2);
+  }
+  check("کیفیت: فریم‌های غیرواقعی (>۲۵۰ms) نادیده گرفته می‌شوند", s2.ratio === 1, `ratio=${s2.ratio}`);
+}
+
 console.log(failures === 0 ? "\nALL LOGIC TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
